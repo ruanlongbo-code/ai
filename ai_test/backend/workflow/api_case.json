@@ -1,0 +1,961 @@
+[
+  {
+    "name": "正常请求-用户注册成功",
+    "description": "验证用户注册接口在输入正确参数时返回成功",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register_user",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": "${{username}}",
+        "password": "${{password}}",
+        "password_confirm": "${{password}}",
+        "email": "${{email}}",
+        "mobile": "${{mobile}}"
+      },
+      "files": {},
+      "setup_script": "username = global_function.random_account()\npassword = global_function.md5_encrypt('test123456')\nemail = global_function.random_email()\nmobile = global_function.random_mobile()\ntest.save_test_env_variables('username', username)\ntest.save_test_env_variables('password', password)\ntest.save_test_env_variables('email', email)\ntest.save_test_env_variables('mobile', mobile)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 200
+        },
+        {
+          "type": "not_null",
+          "field": "id",
+          "expected": true
+        },
+        {
+          "type": "not_null",
+          "field": "username",
+          "expected": true
+        },
+        {
+          "type": "not_null",
+          "field": "nickname",
+          "expected": true
+        },
+        {
+          "type": "not_null",
+          "field": "email",
+          "expected": true
+        },
+        {
+          "type": "not_null",
+          "field": "mobile",
+          "expected": true
+        },
+        {
+          "type": "equal",
+          "field": "is_active",
+          "expected": true
+        },
+        {
+          "type": "equal",
+          "field": "is_superuser",
+          "expected": false
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "参数缺失-缺少username",
+    "description": "验证用户注册接口在缺少username字段时返回422状态码和验证错误信息",
+    "state": "不可用"
+  },
+  {
+    "name": "参数缺失-缺少password",
+    "description": "验证用户注册接口在缺少password字段时返回422状态码及验证错误信息",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register_missing_password",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": "${{username}}"
+      },
+      "files": {},
+      "setup_script": "username = global_function.random_account()\ntest.save_test_env_variables(\"username\", username)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "detail",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "参数缺失-缺少password_confirm",
+    "description": "验证用户注册接口在缺少password_confirm字段时返回422状态码和验证错误信息",
+    "state": "不可用"
+  },
+  {
+    "name": "参数缺失-缺少email",
+    "description": "验证用户注册接口在缺少email字段时返回422状态码及验证错误信息",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register_missing_email",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": "${{username}}",
+        "password": "${{password}}",
+        "mobile": "${{mobile}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "message",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "参数缺失-缺少mobile",
+    "description": "验证用户注册接口在缺少mobile字段时返回422状态码及验证错误信息",
+    "state": "不可用"
+  },
+  {
+    "name": "参数格式错误-email格式不正确",
+    "description": "验证用户注册接口在输入无效email格式时返回422状态码和验证错误信息",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "user_register",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "email": "invalid_email"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "equal",
+          "field": "message",
+          "expected": "验证错误信息"
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "参数格式错误-mobile格式不正确",
+    "description": "验证用户注册接口在mobile字段格式不正确时返回422状态码及验证错误信息",
+    "state": "不可用"
+  },
+  {
+    "name": "边界值测试-password最小长度8位",
+    "description": "验证用户注册接口在输入password为8个字符时返回成功",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register",
+      "method": "POST",
+      "url": "/api/users",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "password = '12345678'\ntest.save_test_env_variables(\"password\", password)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 200
+        },
+        {
+          "type": "not_null",
+          "field": "id",
+          "expected": true
+        },
+        {
+          "type": "not_null",
+          "field": "username",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "边界值测试-password最大长度16位",
+    "description": "验证用户注册接口在password字段值为16个字符时的响应",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register_user",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "password": "${{password_16chars}}"
+      },
+      "files": {},
+      "setup_script": "password_16chars = 'a' * 16\ntest.save_test_env_variables('password_16chars', password_16chars)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 200
+        },
+        {
+          "type": "not_null",
+          "field": "id",
+          "expected": true
+        },
+        {
+          "type": "not_null",
+          "field": "username",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "边界值测试-password小于8位",
+    "description": "验证用户注册接口在password字段小于8位时返回422状态码及验证错误信息",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "password": "1234567"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "message",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "边界值测试-password大于16位",
+    "description": "验证用户注册接口在输入password字段值为17个字符时返回422状态码及验证错误信息",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "/api/users/register",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "password": "${{password_17chars}}"
+      },
+      "files": {},
+      "setup_script": "password_17chars = 'a' * 17\ntest.save_test_env_variables(\"password_17chars\", password_17chars)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "detail",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "异常场景-password与password_confirm不一致",
+    "description": "验证用户注册接口在password与password_confirm字段值不一致时返回422状态码及验证错误信息",
+    "state": "不可用"
+  },
+  {
+    "name": "数据类型错误-password为非字符串",
+    "description": "发送POST请求，路径为/api/users/register，请求头Content-Type设置为application/json，请求体包含password字段值为非字符串类型，验证HTTP状态码为422，响应体包含验证错误信息",
+    "interface": "/api/users register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "user_register",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "password": 12345678
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "message",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "数据类型错误-email为非字符串",
+    "description": "验证用户注册接口在输入非字符串类型的email字段时返回422状态码及验证错误信息",
+    "state": "不可用"
+  },
+  {
+    "name": "空值测试-password为空字符串",
+    "description": "验证用户注册时password字段为空字符串的情况",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register_empty_password",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "password": "",
+        "username": "${{username}}",
+        "email": "${{email}}",
+        "mobile": "${{mobile}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "空值测试-password为null",
+    "description": "验证用户注册接口在password为null时返回422状态码及验证错误信息",
+    "state": "不可用"
+  },
+  {
+    "name": "可选参数测试-不提供nickname",
+    "description": "验证用户注册接口在不提供nickname字段时的处理情况",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "user_register",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": "${{username}}",
+        "password": "${{password}}",
+        "email": "${{email}}"
+      },
+      "files": {},
+      "setup_script": "username = global_function.random_account()\ntest.save_test_env_variables(\"username\", username)\npassword = global_function.md5_encrypt(\"12345678\")\ntest.save_test_env_variables(\"password\", password)\nemail = global_function.random_email()\ntest.save_test_env_variables(\"email\", email)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 200
+        },
+        {
+          "type": "not_null",
+          "field": "id",
+          "expected": true
+        },
+        {
+          "type": "not_null",
+          "field": "username",
+          "expected": true
+        },
+        {
+          "type": "equal",
+          "field": "username",
+          "expected": "${{username}}"
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "可选参数测试-提供nickname",
+    "description": "验证用户注册接口在提供nickname字段时返回正确响应",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "user_register",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": "${{username}}",
+        "password": "${{password}}",
+        "nickname": "${{random_name}}"
+      },
+      "files": {},
+      "setup_script": "nickname = global_function.random_name()\ntest.save_test_env_variables(\"nickname\", nickname)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 200
+        },
+        {
+          "type": "not_null",
+          "field": "id",
+          "expected": true
+        },
+        {
+          "type": "equal",
+          "field": "username",
+          "expected": "${{username}}"
+        },
+        {
+          "type": "equal",
+          "field": "nickname",
+          "expected": "${{nickname}}"
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "空值处理-username为空字符串",
+    "description": "验证用户注册接口在username为空字符串时返回422状态码及错误信息",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register_user",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": "",
+        "password": "${{password}}",
+        "email": "${{email}}",
+        "mobile": "${{mobile}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "message",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "空值处理-username为null",
+    "description": "验证用户名参数为null时的接口处理",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register_null_username",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": null,
+        "password": "${{password}}",
+        "email": "${{email}}",
+        "mobile": "${{mobile}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        },
+        {
+          "type": "equal",
+          "field": "message",
+          "expected": "用户名不能为空"
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "空值处理-password_confirm为空字符串",
+    "description": "验证用户注册接口在password_confirm字段为空字符串时返回422状态码及验证错误信息",
+    "interface": "/api/usersregister",
+    "preconditions": [],
+    "request": {
+      "interface_id": "users_register",
+      "method": "POST",
+      "url": "/api/usersregister",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "applicationjson"
+      },
+      "params": {},
+      "body": {
+        "username": "${{global_function.random_account()}}",
+        "password": "${{password}}",
+        "password_confirm": "",
+        "email": "${{global_function.random_email()}}",
+        "mobile": "${{global_function.random_mobile()}}"
+      },
+      "files": {},
+      "setup_script": "test.save_test_env_variables('username', global_function.random_account())\ntest.save_test_env_variables('email', global_function.random_email())\ntest.save_test_env_variables('mobile', global_function.random_mobile())",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "message",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "空值处理-password_confirm为null",
+    "description": "验证用户注册接口在password_confirm字段为null时返回验证错误信息",
+    "interface": "/apiusers/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "user_register",
+      "method": "POST",
+      "url": "/apiusers/register",
+      "base_url": "${{base_url_replace_this}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": "${{username_replace_this}}",
+        "password": "${{password_replace_this}}",
+        "password_confirm": null,
+        "email": "${{email_replace_this}}",
+        "mobile": "${{mobile_replace_this}}",
+        "nickname": "${{nickname_replace_this}}"
+      },
+      "files": {},
+      "setup_script": "username = global_function.random_account()\ntest.save_test_env_variables(\"username_replace_this\", username)\nemail = global_function.random_email()\ntest.save_test_env_variables(\"email_replace_this\", email)\nmobile = global_function.random_mobile()\ntest.save_test_env_variables(\"mobile_replace_this\", mobile)\nbase_url = \"http://106.54.233.149:8888\"\ntest.save_test_env_variables(\"base_url_replace_this\", base_url)\npassword = \"25d55ad283aa400af464c76d713c07ad\"\ntest.save_test_env_variables(\"password_replace_this\", password)\nnickname = \"孙利\"\ntest.save_test_env_variables(\"nickname_replace_this\", nickname)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "message",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "空值处理-email为空字符串",
+    "description": "验证用户注册接口在email字段为空字符串时返回422状态码和验证错误信息",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "users_register",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": "${{username}}",
+        "password": "${{password}}",
+        "email": ""
+      },
+      "files": {},
+      "setup_script": "username = global_function.random_account()\ntest.save_test_env_variables(\"username\", username)\npassword = global_function.md5_encrypt(\"12345678\")\ntest.save_test_env_variables(\"password\", password)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "detail",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "空值处理-email为null",
+    "description": "验证用户注册接口在email字段为null时返回422状态码及验证错误信息",
+    "state": "不可用"
+  },
+  {
+    "name": "空值处理-mobile为空字符串",
+    "description": "验证用户注册接口在mobile字段为空字符串时的异常处理",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "user_register",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "mobile": "",
+        "username": "${{username}}",
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "detail",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "空值处理-mobile为null",
+    "description": "验证用户注册接口在mobile字段为null时返回422状态码和验证错误信息",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register_null_mobile",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "mobile": null,
+        "username": "${{username}}",
+        "password": "${{password}}",
+        "email": "${{email}}",
+        "nickname": "${{nickname}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "message",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "类型错误-username为非字符串",
+    "description": "验证用户注册接口在username为非字符串类型时返回422状态码及验证错误信息",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register_user",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": 123,
+        "password": "${{password}}",
+        "email": "${{email}}",
+        "mobile": "${{mobile}}",
+        "nickname": "${{nickname}}"
+      },
+      "files": {},
+      "setup_script": "email = global_function.random_email()\ntest.save_test_env_variables(\"email\", email)\nmobile = global_function.random_mobile()\ntest.save_test_env_variables(\"mobile\", mobile)\nnickname = global_function.random_name()\ntest.save_test_env_variables(\"nickname\", nickname)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "detail",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "类型错误-password_confirm为非字符串",
+    "description": "验证用户注册接口在password_confirm参数为非字符串类型时的错误处理",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "register",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "username": "${{username}}",
+        "password": "${{password}}",
+        "password_confirm": 123456,
+        "email": "${{email}}",
+        "mobile": "${{mobile}}",
+        "nickname": "${{nickname}}"
+      },
+      "files": {},
+      "setup_script": "mobile = global_function.random_mobile()\ntest.save_test_env_variables(\"mobile\", mobile)\nemail = global_function.random_email()\ntest.save_test_env_variables(\"email\", email)\nusername = global_function.random_account()\ntest.save_test_env_variables(\"username\", username)\nnickname = global_function.random_name()\ntest.save_test_env_variables(\"nickname\", nickname)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "类型错误-password_confirm为非字符串",
+    "description": "验证用户注册接口在password_confirm为非字符串类型时返回422状态码及验证错误信息",
+    "interface": "/api/users/register",
+    "preconditions": [],
+    "request": {
+      "interface_id": "user_register",
+      "method": "POST",
+      "url": "/api/users/register",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "password_confirm": 123,
+        "username": "${{username}}",
+        "password": "${{password}}",
+        "email": "${{email}}",
+        "mobile": "${{mobile}}",
+        "nickname": "${{nickname}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 422
+        },
+        {
+          "type": "not_null",
+          "field": "detail",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "类型错误-mobile为非字符串",
+    "description": "验证用户注册接口在mobile字段为非字符串类型时返回422状态码及验证错误信息",
+    "state": "不可用"
+  }
+]

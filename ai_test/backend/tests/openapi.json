@@ -1,0 +1,4366 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Web测试平台接口文档",
+    "description": "FastAPI",
+    "version": "0.0.1"
+  },
+  "paths": {
+    "/api/users/register": {
+      "post": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "用户注册",
+        "operationId": "register_api_users_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInfoSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/login": {
+      "post": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "用户登录",
+        "description": "登录的逻辑,实现用户名、手机号、邮箱均可以作为账号登录",
+        "operationId": "login_api_users_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/verify": {
+      "post": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "校验token",
+        "description": "校验token\n:param token:\n:return:",
+        "operationId": "verify_token_api_users_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInfoSchema"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/refresh": {
+      "post": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "刷新token",
+        "operationId": "refresh_token_api_users_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenForm"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/token": {
+      "post": {
+        "tags": [
+          "API调试"
+        ],
+        "summary": "模拟登录",
+        "description": "给接口文档登录生成token的api",
+        "operationId": "login_for_access_token_api_users_token_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_login_for_access_token_api_users_token_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pro/projects/": {
+      "post": {
+        "tags": [
+          "项目"
+        ],
+        "summary": "创建项目",
+        "operationId": "create_project_api_pro_projects__post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddProjectForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "项目"
+        ],
+        "summary": "获取项目列表",
+        "operationId": "get_projects_api_pro_projects__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectPageListSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pro/projects/{id}": {
+      "get": {
+        "tags": [
+          "项目"
+        ],
+        "summary": "获取单个项目详情",
+        "operationId": "get_projects_api_pro_projects__id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "项目"
+        ],
+        "summary": "删除项目",
+        "operationId": "delete_project_api_pro_projects__id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "项目"
+        ],
+        "summary": "修改项目名称",
+        "operationId": "update_project_api_pro_projects__id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pro/envs": {
+      "post": {
+        "tags": [
+          "测试环境管理"
+        ],
+        "summary": "创建测试环境",
+        "operationId": "create_env_api_pro_envs_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddEnvForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestEnvSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "测试环境管理"
+        ],
+        "summary": "获取测试环境列表",
+        "operationId": "get_envs_api_pro_envs_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TestEnvSchemas"
+                  },
+                  "title": "Response Get Envs Api Pro Envs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pro/envs/{id}": {
+      "get": {
+        "tags": [
+          "测试环境管理"
+        ],
+        "summary": "获取单个测试环境详情",
+        "operationId": "get_env_api_pro_envs__id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestEnvSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "测试环境管理"
+        ],
+        "summary": "删除测试环境",
+        "operationId": "delete_env_api_pro_envs__id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "测试环境管理"
+        ],
+        "summary": "修改测试环境",
+        "operationId": "update_env_api_pro_envs__id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEnvForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestEnvSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pro/modules": {
+      "post": {
+        "tags": [
+          "测试模块管理"
+        ],
+        "summary": "创建测试模块",
+        "operationId": "create_module_api_pro_modules_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddModuleForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectModuleSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "测试模块管理"
+        ],
+        "summary": "获取测试模块列表",
+        "operationId": "get_modules_api_pro_modules_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pro/modules/{id}": {
+      "get": {
+        "tags": [
+          "测试模块管理"
+        ],
+        "summary": "获取单个测试模块详情",
+        "operationId": "get_module_api_pro_modules__id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "测试模块管理"
+        ],
+        "summary": "删除测试模块",
+        "operationId": "delete_module_api_pro_modules__id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "测试模块管理"
+        ],
+        "summary": "修改测试模块",
+        "operationId": "update_module_api_pro_modules__id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateModuleForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectModuleSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/test/suites": {
+      "post": {
+        "tags": [
+          "测试套件"
+        ],
+        "summary": "创建测试套件",
+        "description": "创建测试套件的接口",
+        "operationId": "create_suites_api_test_suites_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSuiteForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuiteSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "测试套件"
+        ],
+        "summary": "获取测试套件列表",
+        "description": "查询测试套件列表的接口",
+        "operationId": "get_suites_api_test_suites_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          },
+          {
+            "name": "modules",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Modules"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/test/suites/{id}": {
+      "get": {
+        "tags": [
+          "测试套件"
+        ],
+        "summary": "获取单个套件详情",
+        "description": "获取单个套件详情的接口",
+        "operationId": "get_suite_detail_api_test_suites__id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuiteSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "测试套件"
+        ],
+        "summary": "删除套件信息",
+        "description": "删除套件信息的接口",
+        "operationId": "delete_suite_api_test_suites__id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "测试套件"
+        ],
+        "summary": "更新套件信息",
+        "description": "更新套件信息的接口",
+        "operationId": "update_suite_api_test_suites__id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSuiteForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuiteSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/test/cases": {
+      "post": {
+        "tags": [
+          "测试用例"
+        ],
+        "summary": "创建测试用例",
+        "description": "创建测试用例的接口",
+        "operationId": "create_cases_api_test_cases_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddCasesForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CasesSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "测试用例"
+        ],
+        "summary": "获取测试用例列表",
+        "description": "查询测试用例列表的接口",
+        "operationId": "get_cases_api_test_cases_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/test/cases/{id}": {
+      "put": {
+        "tags": [
+          "测试用例"
+        ],
+        "summary": "更新用例信息",
+        "description": "更新用例信息的接口",
+        "operationId": "update_cases_api_test_cases__id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCasesForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CasesSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "测试用例"
+        ],
+        "summary": "删除用例信息",
+        "description": "删除用例信息的接口",
+        "operationId": "delete_cases_api_test_cases__id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "测试用例"
+        ],
+        "summary": "获取单个用例详情",
+        "description": "获取单个用例详情的接口",
+        "operationId": "get_cases_detail_api_test_cases__id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CasesSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "测试用例"
+        ],
+        "summary": "复制用例",
+        "description": "复制用例的接口",
+        "operationId": "copy_cases_api_test_cases__id__post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CasesSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/test/suites/{suite_id}/cases": {
+      "post": {
+        "tags": [
+          "套件用例管理"
+        ],
+        "summary": "往套件中添加用例",
+        "description": "往套件中添加用例的接口",
+        "operationId": "add_cases_to_suite_api_test_suites__suite_id__cases_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "suite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suite Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSuiteToCaseForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuiteToCaseSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "套件用例管理"
+        ],
+        "summary": "获取套件中的所有用例",
+        "description": "获取套件中的所有用例的接口",
+        "operationId": "get_cases_to_suite_api_test_suites__suite_id__cases_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "suite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suite Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SuiteToCaseListSchemas"
+                  },
+                  "title": "Response Get Cases To Suite Api Test Suites  Suite Id  Cases Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/test/suites/{suite_id}/cases/{id}": {
+      "delete": {
+        "tags": [
+          "套件用例管理"
+        ],
+        "summary": "删除套件中的用例",
+        "description": "删除套件中的用例的接口",
+        "operationId": "delete_cases_to_suite_api_test_suites__suite_id__cases__id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "suite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suite Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "套件用例管理"
+        ],
+        "summary": "修改是否跳过执行",
+        "description": "修改用例执行的顺序的接口",
+        "operationId": "update_cases_to_suite_api_test_suites__suite_id__cases__id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "suite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suite Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuiteToCaseSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/test/suites/{suite_id}/cases/sort": {
+      "post": {
+        "tags": [
+          "套件用例管理"
+        ],
+        "summary": "修改用例执行的顺序",
+        "operationId": "update_cases_sort_api_test_suites__suite_id__cases_sort_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "suite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suite Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/UpdateCaseSortForm"
+                },
+                "title": "Item"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/plan/tasks": {
+      "post": {
+        "tags": [
+          "测试任务"
+        ],
+        "summary": "创建测试任务",
+        "description": "pass",
+        "operationId": "create_tasks_api_plan_tasks_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTasksForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TasksSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "测试任务"
+        ],
+        "summary": "获取测试任务列表",
+        "operationId": "get_tasks_api_plan_tasks_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/plan/tasks/{id}": {
+      "delete": {
+        "tags": [
+          "测试任务"
+        ],
+        "summary": "删除测试任务",
+        "operationId": "delete_tasks_api_plan_tasks__id__delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "测试任务"
+        ],
+        "summary": "修改测试任务名称",
+        "operationId": "update_tasks_api_plan_tasks__id__put",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNameTasksForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TasksSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "测试任务"
+        ],
+        "summary": "获取测试任务详情",
+        "operationId": "get_tasks_detail_api_plan_tasks__id__get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TasksDetailSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/plan/tasks/{id}/suite/": {
+      "post": {
+        "tags": [
+          "测试任务"
+        ],
+        "summary": "往任务中添加业务流试(套件)",
+        "operationId": "add_cases_to_suite_api_plan_tasks__id__suite__post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSuiteToTaskForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TasksSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/plan/tasks/{id}/suite/{suite_id}": {
+      "delete": {
+        "tags": [
+          "测试任务"
+        ],
+        "summary": "删除任务中的业务流(套件)",
+        "operationId": "delete_cases_to_suite_api_plan_tasks__id__suite__suite_id__delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "suite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suite Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/run/cases/{id}": {
+      "post": {
+        "tags": [
+          "测试运行"
+        ],
+        "summary": "执行用例",
+        "operationId": "run_cases_api_run_cases__id__post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunTestForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/run/suites/{id}": {
+      "post": {
+        "tags": [
+          "测试运行"
+        ],
+        "summary": "执行测试套件",
+        "operationId": "run_suites_api_run_suites__id__post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunTestForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/run/tasks/{id}": {
+      "post": {
+        "tags": [
+          "测试运行"
+        ],
+        "summary": "执行测试任务",
+        "operationId": "run_tasks_api_run_tasks__id__post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunTestForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/run/tasks/records": {
+      "get": {
+        "tags": [
+          "测试结果"
+        ],
+        "summary": "获取测试任务的所以运行记录",
+        "operationId": "get_task_records_api_run_tasks_records_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/run/suites/records": {
+      "get": {
+        "tags": [
+          "测试结果"
+        ],
+        "summary": "获取测试套件的所有运行记录",
+        "operationId": "get_suite_records_api_run_suites_records_get",
+        "parameters": [
+          {
+            "name": "suite_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "title": "Suite Id"
+            }
+          },
+          {
+            "name": "task_records_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "title": "Task Records Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/run/cases/records": {
+      "get": {
+        "tags": [
+          "测试结果"
+        ],
+        "summary": "获取测试用例的所有运行记录",
+        "operationId": "get_cases_records_api_run_cases_records_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "suite_records_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "title": "Suite Records Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/run/cases/records/{id}": {
+      "get": {
+        "tags": [
+          "测试结果"
+        ],
+        "summary": "获取测试用例的执行结果详情",
+        "operationId": "get_case_record_detail_api_run_cases_records__id__get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/run/suites/records/{id}": {
+      "get": {
+        "tags": [
+          "测试结果"
+        ],
+        "summary": "获取测试套件的执行结果详情",
+        "operationId": "get_suite_record_detail_api_run_suites_records__id__get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/run/tasks/records/{id}": {
+      "get": {
+        "tags": [
+          "测试结果"
+        ],
+        "summary": "获取测试任务的执行结果详情",
+        "operationId": "get_task_record_detail_api_run_tasks_records__id__get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResultsSchemas"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/devices": {
+      "get": {
+        "tags": [
+          "设备管理"
+        ],
+        "summary": "获取设备列表",
+        "operationId": "get_device_list_api_node_devices_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "设备管理"
+        ],
+        "summary": "注册设备",
+        "operationId": "register_device_api_node_devices_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceSchemas"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/devices/{id}": {
+      "delete": {
+        "tags": [
+          "设备管理"
+        ],
+        "summary": "删除设备",
+        "operationId": "delete_device_api_node_devices__id__delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/run/device/info": {
+      "get": {
+        "tags": [
+          "设备管理"
+        ],
+        "summary": "通过运行的时间id获取运行的设备ID",
+        "operationId": "get_run_device_info_api_node_run_device_info_get",
+        "parameters": [
+          {
+            "name": "run_time_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Run Time Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/node/run/celery/task/info": {
+      "get": {
+        "tags": [
+          "设备管理"
+        ],
+        "summary": "获取celery中的任务执行信息",
+        "operationId": "get_celery_task_info_api_node_run_celery_task_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cron/crontab": {
+      "get": {
+        "tags": [
+          "定时任务"
+        ],
+        "summary": "获取定时任务列表",
+        "description": "获取定时任务列表\n:param project_id:\n:return:",
+        "operationId": "get_crontab_list_api_cron_crontab_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "定时任务"
+        ],
+        "summary": "创建定时任务",
+        "operationId": "create_crontab_api_cron_crontab_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CornJobForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cron/crontab/{id}": {
+      "delete": {
+        "tags": [
+          "定时任务"
+        ],
+        "summary": "删除定时任务",
+        "operationId": "delete_crontab_api_cron_crontab__id__delete",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "定时任务"
+        ],
+        "summary": "修改定时任务的配置",
+        "operationId": "update_crontab_api_cron_crontab__id__put",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CornJobUpdateForm"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cron/crontab/switch/{id}": {
+      "put": {
+        "tags": [
+          "定时任务"
+        ],
+        "summary": "修改定时任务状态",
+        "operationId": "update_crontab_api_cron_crontab_switch__id__put",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AddCasesForm": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "用例名称"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "所属项目"
+          },
+          "steps": {
+            "items": {},
+            "type": "array",
+            "title": "Steps",
+            "description": "用例执行步骤"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "project_id",
+          "steps"
+        ],
+        "title": "AddCasesForm",
+        "description": "创建测试用例"
+      },
+      "AddEnvForm": {
+        "properties": {
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "所属项目"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "环境名称"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host",
+            "description": "环境地址"
+          },
+          "global_vars": {
+            "type": "object",
+            "title": "Global Vars",
+            "description": "全局变量"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id",
+          "name",
+          "host"
+        ],
+        "title": "AddEnvForm",
+        "description": "创建测试环境"
+      },
+      "AddModuleForm": {
+        "properties": {
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "所属项目"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "模块名称"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id",
+          "name"
+        ],
+        "title": "AddModuleForm",
+        "description": "创建测试模块"
+      },
+      "AddProjectForm": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 20,
+            "title": "Name",
+            "description": "项目名称"
+          },
+          "user": {
+            "type": "integer",
+            "title": "User",
+            "description": "项目负责人"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "user"
+        ],
+        "title": "AddProjectForm",
+        "description": "添加项目"
+      },
+      "AddSuiteForm": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "套件名称"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "所属项目id"
+          },
+          "modules_id": {
+            "type": "integer",
+            "title": "Modules Id",
+            "description": "所属模块id"
+          },
+          "suite_setup_step": {
+            "items": {},
+            "type": "array",
+            "title": "Suite Setup Step",
+            "description": "前置执行步骤"
+          },
+          "suite_type": {
+            "type": "string",
+            "title": "Suite Type",
+            "description": "套件类型"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "project_id",
+          "modules_id",
+          "suite_setup_step",
+          "suite_type"
+        ],
+        "title": "AddSuiteForm",
+        "description": "创建测试套件的参数"
+      },
+      "AddSuiteToCaseForm": {
+        "properties": {
+          "cases_id": {
+            "type": "integer",
+            "title": "Cases Id",
+            "description": "所属用例"
+          },
+          "sort": {
+            "type": "integer",
+            "title": "Sort",
+            "description": "用例执行顺序"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cases_id",
+          "sort"
+        ],
+        "title": "AddSuiteToCaseForm",
+        "description": "添加用例到套件中"
+      },
+      "AddSuiteToTaskForm": {
+        "properties": {
+          "suite_id": {
+            "type": "integer",
+            "title": "Suite Id",
+            "description": "套件id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "suite_id"
+        ],
+        "title": "AddSuiteToTaskForm"
+      },
+      "AddTasksForm": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "任务名称"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "所属项目"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "project_id"
+        ],
+        "title": "AddTasksForm"
+      },
+      "Body_login_for_access_token_api_users_token_post": {
+        "properties": {
+          "grant_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "password"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grant Type"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": ""
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "Body_login_for_access_token_api_users_token_post"
+      },
+      "CasesSchemas": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "用例id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "用例名称"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "所属项目"
+          },
+          "create_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Create Time",
+            "description": "创建时间"
+          },
+          "steps": {
+            "items": {},
+            "type": "array",
+            "title": "Steps",
+            "description": "用例执行步骤"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "create_time",
+          "steps"
+        ],
+        "title": "CasesSchemas",
+        "description": "测试用例的模型定义"
+      },
+      "CornJobForm": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Name",
+            "description": "任务名称"
+          },
+          "project": {
+            "type": "integer",
+            "title": "Project",
+            "description": "所属项目"
+          },
+          "env": {
+            "type": "integer",
+            "title": "Env",
+            "description": "执行环境"
+          },
+          "task": {
+            "type": "integer",
+            "title": "Task",
+            "description": "执行的测试任务"
+          },
+          "state": {
+            "type": "boolean",
+            "title": "State",
+            "description": "是否启用",
+            "default": true
+          },
+          "run_type": {
+            "type": "string",
+            "maxLength": 10,
+            "title": "Run Type",
+            "description": "任务类型",
+            "default": "Interval"
+          },
+          "interval": {
+            "type": "integer",
+            "title": "Interval",
+            "description": "执行间隔时间",
+            "default": 60
+          },
+          "date": {
+            "type": "string",
+            "title": "Date",
+            "description": "指定执行的事件",
+            "default": "2030-01-01 00:00:00"
+          },
+          "crontab": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Cron"
+              }
+            ],
+            "description": "周期性任务规则",
+            "default": {
+              "minute": "30",
+              "hour": "*",
+              "day": "*",
+              "month": "*",
+              "day_of_week": "*"
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "project",
+          "env",
+          "task"
+        ],
+        "title": "CornJobForm"
+      },
+      "CornJobUpdateForm": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Name",
+            "description": "任务名称"
+          },
+          "state": {
+            "type": "boolean",
+            "title": "State",
+            "description": "是否启用",
+            "default": true
+          },
+          "run_type": {
+            "type": "string",
+            "maxLength": 10,
+            "title": "Run Type",
+            "description": "任务类型",
+            "default": "Interval"
+          },
+          "interval": {
+            "type": "integer",
+            "title": "Interval",
+            "description": "执行间隔时间",
+            "default": 60
+          },
+          "date": {
+            "type": "string",
+            "title": "Date",
+            "description": "指定执行的事件",
+            "default": "2030-01-01 00:00:00"
+          },
+          "crontab": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Cron"
+              }
+            ],
+            "description": "周期性任务规则",
+            "default": {
+              "minute": "30",
+              "hour": "*",
+              "day": "*",
+              "month": "*",
+              "day_of_week": "*"
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CornJobUpdateForm"
+      },
+      "Cron": {
+        "properties": {
+          "minute": {
+            "type": "string",
+            "title": "Minute",
+            "description": "分钟",
+            "default": "30"
+          },
+          "hour": {
+            "type": "string",
+            "title": "Hour",
+            "description": "小时",
+            "default": "*"
+          },
+          "day": {
+            "type": "string",
+            "title": "Day",
+            "description": "天",
+            "default": "*"
+          },
+          "month": {
+            "type": "string",
+            "title": "Month",
+            "description": "月",
+            "default": "*"
+          },
+          "day_of_week": {
+            "type": "string",
+            "title": "Day Of Week",
+            "description": "星期",
+            "default": "*"
+          }
+        },
+        "type": "object",
+        "title": "Cron"
+      },
+      "DeviceSchemas": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "设备id"
+          },
+          "ip": {
+            "type": "string",
+            "title": "Ip",
+            "description": "设备ip"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "设备名称"
+          },
+          "system": {
+            "type": "string",
+            "title": "System",
+            "description": "系统"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "设备状态",
+            "choices": [
+              "在线",
+              "离线",
+              "任务执行中",
+              "故障"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "ip",
+          "name",
+          "system",
+          "status"
+        ],
+        "title": "DeviceSchemas"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LoginForm": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 6,
+            "title": "Username",
+            "description": "用户名"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 18,
+            "minLength": 6,
+            "title": "Password",
+            "description": "密码"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "LoginForm"
+      },
+      "LoginSchema": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "访问令牌"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserInfoSchema"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "user"
+        ],
+        "title": "LoginSchema"
+      },
+      "ProListSchemas": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "项目id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "项目名称"
+          },
+          "user_id": {
+            "type": "integer",
+            "title": "User Id",
+            "description": "项目负责人"
+          },
+          "create_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Create Time",
+            "description": "创建时间"
+          },
+          "user_name": {
+            "type": "string",
+            "title": "User Name",
+            "description": "项目负责人"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "user_id",
+          "create_time",
+          "user_name"
+        ],
+        "title": "ProListSchemas"
+      },
+      "ProjectModuleSchemas": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "模块id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "模块名称"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "所属项目"
+          },
+          "create_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Create Time",
+            "description": "创建时间"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "create_time"
+        ],
+        "title": "ProjectModuleSchemas"
+      },
+      "ProjectPageListSchemas": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "总数"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ProListSchemas"
+            },
+            "type": "array",
+            "title": "Data",
+            "description": "数据"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "data"
+        ],
+        "title": "ProjectPageListSchemas"
+      },
+      "ProjectSchemas": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "项目id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "项目名称"
+          },
+          "user_id": {
+            "type": "integer",
+            "title": "User Id",
+            "description": "项目负责人"
+          },
+          "create_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Create Time",
+            "description": "创建时间"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "user_id",
+          "create_time"
+        ],
+        "title": "ProjectSchemas",
+        "description": "项目详情"
+      },
+      "RegisterForm": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 6,
+            "title": "Username",
+            "description": "用户名"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 18,
+            "minLength": 6,
+            "title": "Password",
+            "description": "密码"
+          },
+          "password_confirm": {
+            "type": "string",
+            "maxLength": 18,
+            "minLength": 6,
+            "title": "Password Confirm",
+            "description": "确认密码"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email",
+            "description": "邮箱"
+          },
+          "mobile": {
+            "type": "string",
+            "title": "Mobile",
+            "description": "手机号"
+          },
+          "nickname": {
+            "type": "string",
+            "title": "Nickname",
+            "description": "昵称",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password",
+          "password_confirm",
+          "email",
+          "mobile"
+        ],
+        "title": "RegisterForm"
+      },
+      "RunTestForm": {
+        "properties": {
+          "env_id": {
+            "type": "integer",
+            "title": "Env Id",
+            "description": "运行环境的ID"
+          },
+          "browser_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Browser Type",
+            "description": "浏览器类型"
+          }
+        },
+        "type": "object",
+        "required": [
+          "env_id"
+        ],
+        "title": "RunTestForm"
+      },
+      "SuiteSchemas": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "套件id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "套件名称"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "所属项目id"
+          },
+          "modules_id": {
+            "type": "integer",
+            "title": "Modules Id",
+            "description": "所属模块id"
+          },
+          "create_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Create Time",
+            "description": "创建时间"
+          },
+          "suite_setup_step": {
+            "items": {},
+            "type": "array",
+            "title": "Suite Setup Step",
+            "description": "前置执行步骤"
+          },
+          "suite_type": {
+            "type": "string",
+            "title": "Suite Type",
+            "description": "套件类型",
+            "choices": [
+              "功能",
+              "业务流"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "modules_id",
+          "create_time",
+          "suite_setup_step",
+          "suite_type"
+        ],
+        "title": "SuiteSchemas",
+        "description": "测试套件返回数据类型"
+      },
+      "SuiteToCaseListSchemas": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "用例id"
+          },
+          "suite_id": {
+            "type": "integer",
+            "title": "Suite Id",
+            "description": "所属套件"
+          },
+          "cases_id": {
+            "type": "integer",
+            "title": "Cases Id",
+            "description": "所属用例"
+          },
+          "sort": {
+            "type": "integer",
+            "title": "Sort",
+            "description": "用例执行顺序"
+          },
+          "skip": {
+            "type": "boolean",
+            "title": "Skip",
+            "description": "是否跳过"
+          },
+          "suite_name": {
+            "type": "string",
+            "title": "Suite Name",
+            "description": "套件名称"
+          },
+          "cases_name": {
+            "type": "string",
+            "title": "Cases Name",
+            "description": "用例名称"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "suite_id",
+          "cases_id",
+          "sort",
+          "skip",
+          "suite_name",
+          "cases_name"
+        ],
+        "title": "SuiteToCaseListSchemas",
+        "description": "获取套件中的所以的用例"
+      },
+      "SuiteToCaseSchemas": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "用例id"
+          },
+          "suite_id": {
+            "type": "integer",
+            "title": "Suite Id",
+            "description": "所属套件"
+          },
+          "cases_id": {
+            "type": "integer",
+            "title": "Cases Id",
+            "description": "所属用例"
+          },
+          "sort": {
+            "type": "integer",
+            "title": "Sort",
+            "description": "用例执行顺序"
+          },
+          "skip": {
+            "type": "boolean",
+            "title": "Skip",
+            "description": "是否跳过"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "suite_id",
+          "cases_id",
+          "sort",
+          "skip"
+        ],
+        "title": "SuiteToCaseSchemas",
+        "description": "套件中的用例"
+      },
+      "TaskResultsSchemas": {
+        "properties": {
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id"
+          },
+          "start_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start Time"
+          },
+          "task_id": {
+            "type": "integer",
+            "title": "Task Id"
+          },
+          "task_name": {
+            "type": "string",
+            "title": "Task Name"
+          },
+          "success": {
+            "type": "integer",
+            "title": "Success"
+          },
+          "error": {
+            "type": "integer",
+            "title": "Error"
+          },
+          "skip": {
+            "type": "integer",
+            "title": "Skip"
+          },
+          "all": {
+            "type": "integer",
+            "title": "All"
+          },
+          "fail": {
+            "type": "integer",
+            "title": "Fail"
+          },
+          "run_all": {
+            "type": "integer",
+            "title": "Run All"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "env": {
+            "type": "object",
+            "title": "Env"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id",
+          "start_time",
+          "task_id",
+          "task_name",
+          "success",
+          "error",
+          "skip",
+          "all",
+          "fail",
+          "run_all",
+          "status",
+          "id",
+          "env"
+        ],
+        "title": "TaskResultsSchemas"
+      },
+      "TasksDetailSchemas": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "任务id"
+          },
+          "create_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Create Time",
+            "description": "创建时间"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "任务名称"
+          },
+          "suites": {
+            "items": {
+              "$ref": "#/components/schemas/TasksToSuiteSchemas"
+            },
+            "type": "array",
+            "title": "Suites",
+            "description": "任务中套件"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "create_time",
+          "name",
+          "suites"
+        ],
+        "title": "TasksDetailSchemas"
+      },
+      "TasksSchemas": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "任务id"
+          },
+          "create_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Create Time",
+            "description": "创建时间"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "任务名称"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "所属项目"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "create_time",
+          "name",
+          "project_id"
+        ],
+        "title": "TasksSchemas"
+      },
+      "TasksToSuiteSchemas": {
+        "properties": {
+          "suite_id": {
+            "type": "integer",
+            "title": "Suite Id",
+            "description": "套件id"
+          },
+          "suite_name": {
+            "type": "string",
+            "title": "Suite Name",
+            "description": "套件名称"
+          },
+          "suite_type": {
+            "type": "string",
+            "title": "Suite Type",
+            "description": "套件类型"
+          }
+        },
+        "type": "object",
+        "required": [
+          "suite_id",
+          "suite_name",
+          "suite_type"
+        ],
+        "title": "TasksToSuiteSchemas"
+      },
+      "TestEnvSchemas": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "环境id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "环境名称"
+          },
+          "create_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Create Time",
+            "description": "创建时间"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host",
+            "description": "环境地址"
+          },
+          "global_vars": {
+            "type": "object",
+            "title": "Global Vars",
+            "description": "全局变量"
+          },
+          "project_id": {
+            "type": "integer",
+            "title": "Project Id",
+            "description": "所属项目"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "create_time",
+          "host",
+          "global_vars",
+          "project_id"
+        ],
+        "title": "TestEnvSchemas"
+      },
+      "Token": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "token_type"
+        ],
+        "title": "Token",
+        "description": "接口文档的使用的"
+      },
+      "TokenForm": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "TokenForm"
+      },
+      "UpdateCaseSortForm": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "sort": {
+            "type": "integer",
+            "title": "Sort"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "sort"
+        ],
+        "title": "UpdateCaseSortForm",
+        "description": "修改用例顺序"
+      },
+      "UpdateCasesForm": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "用例名称"
+          },
+          "steps": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steps",
+            "description": "用例执行步骤"
+          }
+        },
+        "type": "object",
+        "title": "UpdateCasesForm",
+        "description": "修改测试用例"
+      },
+      "UpdateEnvForm": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "环境名称"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host",
+            "description": "环境地址"
+          },
+          "global_vars": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Global Vars",
+            "description": "全局变量"
+          }
+        },
+        "type": "object",
+        "title": "UpdateEnvForm",
+        "description": "修改测试环境"
+      },
+      "UpdateModuleForm": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "模块名称"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "UpdateModuleForm",
+        "description": "修改测试模块"
+      },
+      "UpdateNameTasksForm": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "任务名称"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "UpdateNameTasksForm"
+      },
+      "UpdateProjectForm": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 20,
+            "title": "Name",
+            "description": "项目名称"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "UpdateProjectForm",
+        "description": "更新项目"
+      },
+      "UpdateSuiteForm": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "套件名称"
+          },
+          "modules_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modules Id",
+            "description": "所属模块id"
+          },
+          "suite_setup_step": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suite Setup Step",
+            "description": "前置执行步骤"
+          },
+          "suite_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suite Type",
+            "description": "套件类型"
+          }
+        },
+        "type": "object",
+        "title": "UpdateSuiteForm",
+        "description": "修改测试套件的参数"
+      },
+      "UserInfoSchema": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id",
+            "description": "用户id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username",
+            "description": "用户名"
+          },
+          "nickname": {
+            "type": "string",
+            "title": "Nickname",
+            "description": "昵称"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email",
+            "description": "邮箱"
+          },
+          "mobile": {
+            "type": "string",
+            "title": "Mobile",
+            "description": "手机号"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "description": "是否激活"
+          },
+          "is_superuser": {
+            "type": "boolean",
+            "title": "Is Superuser",
+            "description": "是否超级管理员"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "nickname",
+          "email",
+          "mobile",
+          "is_active",
+          "is_superuser"
+        ],
+        "title": "UserInfoSchema"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "OAuth2PasswordBearer": {
+        "type": "oauth2",
+        "flows": {
+          "password": {
+            "scopes": {},
+            "tokenUrl": "/api/users/token"
+          }
+        }
+      }
+    }
+  }
+}

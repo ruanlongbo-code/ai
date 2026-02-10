@@ -1,0 +1,1154 @@
+<template>
+  <div class="case-generation-page">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <div class="header-content">
+        <div class="breadcrumb-section">
+          <el-breadcrumb separator="/">
+            <el-breadcrumb-item>
+              <router-link to="/function-test/requirement">
+                需求管理
+              </router-link>
+            </el-breadcrumb-item>
+            <el-breadcrumb-item>用例生成</el-breadcrumb-item>
+          </el-breadcrumb>
+        </div>
+        <div class="action-section">
+          <el-button @click="handleBack">
+            <el-icon>
+              <ArrowLeft/>
+            </el-icon>
+            返回列表
+          </el-button>
+        </div>
+      </div>
+    </div>
+
+    <div v-loading="loading" class="page-content">
+      <div class="generation-container">
+        <!-- 需求信息卡片 - 独占一行 -->
+        <div class="requirement-section">
+          <el-card class="requirement-card">
+            <template #header>
+              <div class="card-header">
+                <h3>需求信息</h3>
+              </div>
+            </template>
+
+            <div v-if="requirement" class="requirement-info">
+              <div class="title-section">
+                <h2>{{ requirement.title }}</h2>
+                <!-- 按钮组 -->
+                <div class="button-group">
+                  <el-button
+                      type="primary"
+                      size="large"
+                      :loading="generating"
+                      @click="handleGenerate"
+                      :disabled="!canGenerate"
+                  >
+                    <el-icon v-if="!generating">
+                      <MagicStick/>
+                    </el-icon>
+                    {{ generating ? '正在生成...' : '开始生成用例' }}
+                  </el-button>
+                  
+                  <!-- 查看用例按钮，只在生成完成后显示 -->
+                  <el-button
+                      v-if="progressStatus === 'success'"
+                      type="success"
+                      size="large"
+                      @click="handleViewCases"
+                  >
+                    <el-icon>
+                      <View/>
+                    </el-icon>
+                    查看用例
+                  </el-button>
+                </div>
+              </div>
+
+              <div v-if="requirement.description" class="description-section">
+                <label>需求信息</label>
+                <div class="description-content" v-html="requirement.description || '暂无描述'"></div>
+              </div>
+            </div>
+
+            <div v-else class="loading-placeholder">
+              <el-skeleton :rows="6" animated/>
+            </div>
+          </el-card>
+        </div>
+
+        <!-- 生成进度和生成数据 - 左右布局 (3:7) -->
+        <div class="content-section">
+          <!-- 左侧：生成进度列表 (30%) -->
+          <div class="notification-section" v-if="notifications.length > 0">
+            <NotificationList
+                :notifications="notifications"
+                @clear="clearNotifications"
+                @mark-read="markNotificationAsRead"
+                @mark-all-read="markAllNotificationsAsRead"
+            />
+          </div>
+
+          <!-- 右侧：生成数据 (70%) -->
+          <div class="generation-section">
+          <!-- 实时生成输出 - ChatGPT风格 -->
+          <div class="chat-wrapper">
+            <ChatContainer
+                :messages="chatMessages"
+                :title="'AI 用例生成助手'"
+                :show-header="false"
+                :show-message-actions="true"
+                :empty-text="'点击上方开始生成用例按钮，AI助手将为您生成测试用例'"
+                :is-loading="generating"
+                :streaming-message-id="streamingMessageId"
+                :auto-scroll="true"
+                @clear-messages="clearChatMessages"
+                @export-messages="handleExportChat"
+                @copy-message="handleCopyMessage"
+                @regenerate-message="handleRegenerateMessage"
+            />
+          </div>
+
+          <!-- 生成结果 -->
+          <el-card v-if="generatedCases.length > 0" class="results-card">
+            <template #header>
+              <div class="card-header">
+                <h3>生成结果 ({{ generatedCases.length }} 个用例)</h3>
+                <div class="header-actions">
+                  <el-button size="small" @click="handleSelectAll">
+                    {{ allSelected ? '取消全选' : '全选' }}
+                  </el-button>
+                  <el-button
+                      type="primary"
+                      size="small"
+                      :disabled="selectedCases.length === 0"
+                      @click="handleSaveCases"
+                  >
+                    保存选中用例 ({{ selectedCases.length }})
+                  </el-button>
+                </div>
+              </div>
+            </template>
+
+            <div class="cases-list">
+              <div
+                  v-for="(caseItem, index) in generatedCases"
+                  :key="index"
+                  class="case-item"
+                  :class="{ selected: selectedCases.includes(index) }"
+              >
+                <div class="case-header">
+                  <el-checkbox
+                      :model-value="selectedCases.includes(index)"
+                      @change="handleCaseSelect(index, $event)"
+                  />
+                  <span class="case-title">{{ caseItem.case_name }}</span>
+                  <el-tag :type="getCaseTypeTag(caseItem.type)" size="small">
+                    {{ getCaseTypeLabel(caseItem.type) }}
+                  </el-tag>
+                </div>
+
+                <div class="case-content">
+                  <div class="case-steps">
+                    <strong>测试步骤：</strong>
+                    <ol>
+                      <li v-for="step in caseItem.steps" :key="step">{{ step }}</li>
+                    </ol>
+                  </div>
+
+                  <div class="case-expected">
+                    <strong>预期结果：</strong>
+                    <p>{{ caseItem.expected_result }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </el-card>
+        </div>
+          </div>
+        </div>
+      </div>
+    </div>
+<!--  </div>-->
+
+</template>
+
+<script setup>
+defineOptions({ name: 'FunctionTestCaseGenerate' })
+import {ref, reactive, computed, onMounted, onActivated, onDeactivated, nextTick} from 'vue'
+import {useRoute, useRouter} from 'vue-router'
+import {ElMessage, ElMessageBox} from 'element-plus'
+import {
+  ArrowLeft,
+  MagicStick,
+  InfoFilled,
+  Loading,
+  SuccessFilled,
+  WarningFilled,
+  ChatDotRound,
+  View
+} from '@element-plus/icons-vue'
+import ChatContainer from '@/components/ChatContainer.vue'
+import NotificationList from '@/components/NotificationList.vue'
+import {
+  getRequirementDetail,
+  REQUIREMENT_STATUS_LABELS,
+  REQUIREMENT_STATUS_COLORS,
+  REQUIREMENT_PRIORITY_LABELS
+} from '@/api/functional_test'
+import {useProjectStore} from '@/stores'
+import {useUserStore} from '@/stores'
+const route = useRoute()
+const router = useRouter()
+const projectStore = useProjectStore()
+const userStore = useUserStore()
+
+// 响应式数据
+const loading = ref(false)
+const requirement = ref(null)
+const generating = ref(false)
+const progress = ref(0)
+const progressStatus = ref('')
+const progressText = ref('')
+const generatedCases = ref([])
+const selectedCases = ref([])
+const outputMessages = ref([]) // 保留原有的，用于兼容
+const outputContainer = ref(null)
+
+// 新增：ChatGPT风格的消息数据
+const chatMessages = ref([])
+const streamingMessageId = ref('')
+const currentStreamingMessage = ref(null)
+
+// 新增：进度列表数据
+const notifications = ref([])
+const notificationIdCounter = ref(0)
+
+// 生成配置表单
+const generationForm = reactive({
+  count: 8,
+  types: ['positive', 'negative', 'boundary'],
+  detail: 'detailed'
+})
+
+// 计算属性
+const projectId = computed(() => projectStore.currentProject?.id)
+const requirementId = computed(() => route.params.requirementId || route.query.requirement_id)
+
+const canGenerate = computed(() => {
+  return requirement.value && generationForm.types.length > 0 && !generating.value
+})
+
+const allSelected = computed(() => {
+  return generatedCases.value.length > 0 && selectedCases.value.length === generatedCases.value.length
+})
+
+// 方法
+const handleBack = () => {
+  router.push(`/function-test/requirement`)
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return '未知'
+  return new Date(dateString).toLocaleString('zh-CN')
+}
+
+const formatTime = (timestamp) => {
+  return new Date(timestamp).toLocaleTimeString('zh-CN')
+}
+
+const getPriorityLabel = (priority) => {
+  return REQUIREMENT_PRIORITY_LABELS[priority] || '未知'
+}
+
+const getPriorityType = (priority) => {
+  const typeMap = {1: 'info', 2: 'warning', 3: 'danger', 4: 'danger'}
+  return typeMap[priority] || 'info'
+}
+
+const getStatusLabel = (status) => {
+  return REQUIREMENT_STATUS_LABELS[status] || '未知'
+}
+
+const getStatusColor = (status) => {
+  return REQUIREMENT_STATUS_COLORS[status] || '#909399'
+}
+
+const getCaseTypeLabel = (type) => {
+  const labels = {
+    positive: '正向用例',
+    negative: '负向用例',
+    boundary: '边界用例',
+    exception: '异常用例'
+  }
+  return labels[type] || type
+}
+
+const getCaseTypeTag = (type) => {
+  const tags = {
+    positive: 'success',
+    negative: 'warning',
+    boundary: 'info',
+    exception: 'danger'
+  }
+  return tags[type] || 'info'
+}
+
+const getMessageTypeLabel = (type) => {
+  const labels = {
+    info: '信息',
+    start: '开始',
+    progress: '进度',
+    complete: '完成',
+    error: '错误'
+  }
+  return labels[type] || '消息'
+}
+
+const addMessage = (type, message) => {
+  outputMessages.value.push({
+    type,
+    message,
+    timestamp: Date.now()
+  })
+
+  // 自动滚动到底部
+  nextTick(() => {
+    if (outputContainer.value) {
+      outputContainer.value.scrollTop = outputContainer.value.scrollHeight
+    }
+  })
+}
+
+const clearOutput = () => {
+  outputMessages.value = []
+  progress.value = 0
+  progressText.value = ''
+}
+
+const scrollToBottom = () => {
+  nextTick(() => {
+    if (outputContainer.value) {
+      outputContainer.value.scrollTop = outputContainer.value.scrollHeight
+    }
+  })
+}
+
+// SSE流式接口处理
+const handleGenerate = async () => {
+  if (!projectId.value || !requirementId.value) {
+    ElMessage.error('缺少必要参数')
+    return
+  }
+
+  try {
+    generating.value = true
+    progress.value = 0
+    progressStatus.value = 'active'
+    progressText.value = '正在连接服务器...'
+    generatedCases.value = []
+    selectedCases.value = []
+
+    // 清空之前的输出
+    clearOutput()
+    clearChatMessages()
+
+    // 不再添加开始消息，等待SSE的start消息来创建流式消息
+
+    // 使用fetch替代EventSource来支持POST请求
+    const response = await fetch(
+        `${import.meta.env.VITE_BASE_API}/functional_test/${projectId.value}/requirements/${requirementId.value}/generate_cases`,
+        {
+          method: 'POST',
+          headers: {
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Authorization': `Bearer ${userStore.token}`,
+            'Content-Type': 'application/json'
+          },
+          // 不发送跨域凭证（cookies），以避免 CORS 对通配符来源的限制
+          credentials: 'omit'
+        }
+    )
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let progressValue = 0
+    let currentStreamingId = null
+
+    while (true) {
+      const {done, value} = await reader.read()
+
+      if (done) {
+        generating.value = false
+        if (progress.value < 100) {
+          progress.value = 100
+          progressStatus.value = 'success'
+          progressText.value = '生成完成！'
+
+          // 完成流式消息
+          if (currentStreamingId && currentStreamingMessage.value) {
+            currentStreamingMessage.value.content += '\n🎉 所有任务已完成！'
+            updateStreamingMessage(currentStreamingId, currentStreamingMessage.value.content, true)
+          } else {
+            addChatMessage('assistant', '✅ 测试用例生成完成！所有用例已准备就绪。', false)
+          }
+        }
+        break
+      }
+
+      // 解码数据块
+      buffer += decoder.decode(value, {stream: true})
+
+      // 处理完整的SSE消息
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || '' // 保留不完整的行
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6) // 移除 'data: ' 前缀
+
+          if (data === '[DONE]') {
+            generating.value = false
+            progress.value = 100
+            progressStatus.value = 'success'
+            progressText.value = '生成完成！'
+
+            // 完成流式消息
+            if (currentStreamingId && currentStreamingMessage.value) {
+              currentStreamingMessage.value.content += '\n🎉 生成任务已完成！'
+              updateStreamingMessage(currentStreamingId, currentStreamingMessage.value.content, true)
+            } else {
+              addChatMessage('assistant', '✅ 测试用例生成完成！所有用例已准备就绪。', false)
+            }
+            return
+          }
+
+          try {
+            const parsedData = JSON.parse(data)
+
+            // 处理不同类型的消息
+            if (parsedData.type === 'start') {
+              // 开始流式消息，创建一个可以持续更新的消息
+              if (!currentStreamingId) {
+                currentStreamingId = startStreamingMessage('assistant', `🔄 ${parsedData.message}\n`)
+              }
+              // 添加到进度列表
+              addNotification('start', parsedData.message)
+            } else if (parsedData.type === 'info') {
+              // 更新进度
+              progressValue = Math.min(progressValue + 10, 90)
+              progress.value = progressValue
+              progressText.value = parsedData.message
+
+              // info 类型消息只添加到进度列表，不显示在流式输出中
+              addNotification('info', parsedData.message)
+            } else if (parsedData.type === 'progress') {
+              // 处理流式内容 - 直接追加到当前消息（保持当前方式）
+              if (!currentStreamingId) {
+                currentStreamingId = startStreamingMessage('assistant', parsedData.message)
+              } else {
+                // 累积流式内容
+                if (currentStreamingMessage.value) {
+                  currentStreamingMessage.value.content += parsedData.message
+                  updateStreamingMessage(currentStreamingId, currentStreamingMessage.value.content, false)
+                }
+              }
+              // progress类型不添加到进度列表，保持当前显示方式
+            } else if (parsedData.type === 'complete') {
+              progress.value = 100
+              progressStatus.value = 'success'
+              progressText.value = parsedData.message
+
+              // 完成当前流式消息
+              if (currentStreamingId) {
+                // 在完成前添加最终的完成信息
+                if (currentStreamingMessage.value) {
+                  currentStreamingMessage.value.content += `\n✅ ${parsedData.message}`
+                  updateStreamingMessage(currentStreamingId, currentStreamingMessage.value.content, true)
+                }
+                currentStreamingId = null
+              } else {
+                // 如果没有流式消息，创建一个完成消息
+                addChatMessage('assistant', `✅ ${parsedData.message}`, false)
+              }
+
+              // 如果有生成的用例数据，解析并显示
+              if (parsedData.cases) {
+                generatedCases.value = parsedData.cases
+                selectedCases.value = generatedCases.value.map((_, index) => index)
+
+                // 将结果总结追加到流式消息中
+                if (currentStreamingId && currentStreamingMessage.value) {
+                  const summaryMessage = `\n## 📋 生成结果总结
+
+共生成 **${parsedData.cases.length}** 个测试用例：
+
+${parsedData.cases.map((caseItem, index) =>
+                      `${index + 1}. **${caseItem.case_name}** (${getCaseTypeLabel(caseItem.type)})`
+                  ).join('\n')}
+
+您可以在下方查看详细内容并选择需要保存的用例。`
+
+                  currentStreamingMessage.value.content += summaryMessage
+                  updateStreamingMessage(currentStreamingId, currentStreamingMessage.value.content, true)
+                } else {
+                  // 如果没有流式消息，创建新的总结消息
+                  const summaryMessage = `## 📋 生成结果总结
+
+共生成 **${parsedData.cases.length}** 个测试用例：
+
+${parsedData.cases.map((caseItem, index) =>
+                      `${index + 1}. **${caseItem.case_name}** (${getCaseTypeLabel(caseItem.type)})`
+                  ).join('\n')}
+
+您可以在下方查看详细内容并选择需要保存的用例。`
+
+                  addChatMessage('assistant', summaryMessage, true)
+                }
+              }
+              // 添加到进度列表
+              addNotification('complete', parsedData.message)
+            } else if (parsedData.type === 'error') {
+              // 将错误信息追加到流式消息中
+              if (currentStreamingId && currentStreamingMessage.value) {
+                currentStreamingMessage.value.content += `\n❌ 错误：${parsedData.message}`
+                updateStreamingMessage(currentStreamingId, currentStreamingMessage.value.content, true)
+                currentStreamingId = null
+              } else {
+                addChatMessage('system', `❌ 错误：${parsedData.message}`, false)
+              }
+              // 添加到进度列表
+              addNotification('error', parsedData.message)
+            } else {
+              // 其他类型的消息 - 追加到流式消息中
+              if (currentStreamingId && currentStreamingMessage.value) {
+                currentStreamingMessage.value.content += `\n${parsedData.message}`
+                updateStreamingMessage(currentStreamingId, currentStreamingMessage.value.content, false)
+              } else {
+                addChatMessage('assistant', parsedData.message, false)
+              }
+              // 其他类型也添加到进度列表
+              addNotification(parsedData.type || 'info', parsedData.message)
+            }
+
+            // 保持原有的兼容性
+            addMessage(parsedData.type, parsedData.message)
+            scrollToBottom()
+          } catch (error) {
+            console.error('解析SSE数据失败:', error)
+            addMessage('error', `数据解析错误: ${error.message}`)
+            addChatMessage('system', `❌ 数据解析错误：${error.message}`, false)
+          }
+        }
+      }
+    }
+
+  } catch (error) {
+    console.error('生成用例失败:', error)
+    generating.value = false
+    progress.value = 100
+    progressStatus.value = 'exception'
+    progressText.value = '生成失败'
+
+    // 将错误信息追加到流式消息中
+    if (currentStreamingId && currentStreamingMessage.value) {
+      currentStreamingMessage.value.content += `\n❌ 生成失败：${error.message}`
+      updateStreamingMessage(currentStreamingId, currentStreamingMessage.value.content, true)
+    } else {
+      addMessage('error', `生成失败: ${error.message}`)
+      addChatMessage('system', `❌ 生成失败：${error.message}`, false)
+    }
+    ElMessage.error('生成用例失败')
+  }
+}
+
+const handleCaseSelect = (index, selected) => {
+  if (selected) {
+    if (!selectedCases.value.includes(index)) {
+      selectedCases.value.push(index)
+    }
+  } else {
+    const idx = selectedCases.value.indexOf(index)
+    if (idx > -1) {
+      selectedCases.value.splice(idx, 1)
+    }
+  }
+}
+
+// 查看用例按钮点击处理
+const handleViewCases = () => {
+  // 跳转到需求详情页
+  router.push(`/function-test/requirement/${requirementId.value}`)
+}
+
+const handleSelectAll = () => {
+  if (allSelected.value) {
+    selectedCases.value = []
+  } else {
+    selectedCases.value = generatedCases.value.map((_, index) => index)
+  }
+}
+
+const handleSaveCases = async () => {
+  try {
+    const selectedCaseData = selectedCases.value.map(index => generatedCases.value[index])
+
+    await ElMessageBox.confirm(
+        `确定要保存选中的 ${selectedCases.value.length} 个测试用例吗？`,
+        '保存用例',
+        {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          type: 'info'
+        }
+    )
+
+    // 这里应该调用保存用例的API
+    // await saveFunctionalCases(projectId.value, selectedCaseData)
+
+    ElMessage.success('用例保存成功')
+
+    // 跳转到用例列表页面
+    router.push(`/function-test/case?requirement_id=${requirementId.value}`)
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('保存用例失败:', error)
+      ElMessage.error('保存用例失败')
+    }
+  }
+}
+
+// 加载需求详情
+const loadRequirementDetail = async () => {
+  try {
+    loading.value = true
+    const response = await getRequirementDetail(projectId.value, requirementId.value)
+    requirement.value = response.data
+  } catch (error) {
+    console.error('加载需求详情失败:', error)
+    ElMessage.error('加载需求详情失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 生命周期
+onMounted(() => {
+  if (projectId.value && requirementId.value) {
+    loadRequirementDetail()
+  }
+})
+
+onActivated(() => {
+  nextTick(() => {})
+})
+
+onDeactivated(() => {})
+
+// 新增：ChatGPT风格消息处理方法
+const addChatMessage = (type, content, isMarkdown = false) => {
+  const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+
+  const message = {
+    id: messageId,
+    type: type === 'start' ? 'assistant' : type === 'error' ? 'system' : 'assistant',
+    content: content,
+    timestamp: Date.now(),
+    isMarkdown: isMarkdown,
+    isStreaming: false
+  }
+
+  chatMessages.value.push(message)
+  return messageId
+}
+
+const updateStreamingMessage = (messageId, content, isComplete = false) => {
+  const messageIndex = chatMessages.value.findIndex(msg => msg.id === messageId)
+  if (messageIndex !== -1) {
+    chatMessages.value[messageIndex].content = content
+    chatMessages.value[messageIndex].isStreaming = !isComplete
+
+    if (isComplete) {
+      streamingMessageId.value = ''
+      currentStreamingMessage.value = null
+    }
+  }
+}
+
+const startStreamingMessage = (type, initialContent = '') => {
+  const messageId = addChatMessage(type, initialContent, true)
+  streamingMessageId.value = messageId
+  currentStreamingMessage.value = {
+    id: messageId,
+    content: initialContent
+  }
+
+  // 设置消息为流式状态
+  const messageIndex = chatMessages.value.findIndex(msg => msg.id === messageId)
+  if (messageIndex !== -1) {
+    chatMessages.value[messageIndex].isStreaming = true
+  }
+
+  return messageId
+}
+
+const clearChatMessages = () => {
+  chatMessages.value = []
+  streamingMessageId.value = ''
+  currentStreamingMessage.value = null
+}
+
+const handleExportChat = (exportData) => {
+  ElMessage.success('对话记录已导出')
+}
+
+const handleCopyMessage = (message) => {
+  ElMessage.success('消息已复制到剪贴板')
+}
+
+const handleRegenerateMessage = (message) => {
+  ElMessage.info('重新生成功能暂未实现')
+}
+
+// 进度列表相关方法
+const addNotification = (type, message) => {
+  const notification = {
+    id: `notification_${++notificationIdCounter.value}`,
+    type,
+    message,
+    timestamp: Date.now(),
+    read: false
+  }
+  notifications.value.push(notification)
+}
+
+const clearNotifications = () => {
+  notifications.value = []
+}
+
+const markNotificationAsRead = (id) => {
+  const notification = notifications.value.find(n => n.id === id)
+  if (notification) {
+    notification.read = true
+  }
+}
+
+const markAllNotificationsAsRead = () => {
+  notifications.value.forEach(n => n.read = true)
+}
+</script>
+
+<style scoped>
+.case-generation-page {
+  min-height: 100vh;
+  background-color: #f5f7fa;
+}
+
+.page-header {
+  background: white;
+  border-bottom: 1px solid #e4e7ed;
+  padding: 16px 24px;
+}
+
+.header-content {
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 24px;
+}
+
+.breadcrumb-section {
+  flex: none;
+}
+
+.action-section {
+  display: flex;
+  gap: 12px;
+}
+
+.page-content {
+  padding: 20px;
+}
+
+.generation-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+
+
+}
+
+/* 需求信息区域 - 独占一行 */
+.requirement-section {
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+/* 内容区域 - 左右布局 */
+.content-section {
+  display: flex;
+  gap: 20px;
+  width: 100%;
+  height: 800px;
+}
+
+/* 左侧进度区域 - 30% */
+.notification-section {
+  flex: 0 0 30%;
+  position: sticky;
+  top: 20px;
+  height: 800px; 
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 右侧生成区域 - 70% */
+.generation-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0; /* 防止flex子项溢出 */
+  height: 800px;
+  overflow-y: auto;
+}
+
+.requirement-card,
+.output-card,
+.results-card {
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  width: 100%;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 需求信息样式 */
+.title-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.title-section h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+  flex: 1;
+}
+
+.title-section .el-button {
+  margin-left: 16px;
+  padding: 12px 24px;
+  font-size: 14px;
+}
+
+/* 按钮组样式 */
+.button-group {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.meta-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.doc-no {
+  font-size: 12px;
+  color: #909399;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.info-item label {
+  font-size: 12px;
+  color: #909399;
+  font-weight: 500;
+}
+
+.description-section {
+  margin-top: 16px;
+}
+
+.description-section label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #909399;
+  font-weight: 500;
+}
+
+.description-content {
+  padding: 12px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  border: 1px solid #e4e7ed;
+  line-height: 1.6;
+  color: #606266;
+  font-size: 14px;
+}
+
+.generation-actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.generation-actions .el-button {
+  padding: 12px 32px;
+  font-size: 16px;
+}
+
+/* 输出区域样式 */
+.output-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 500px;
+}
+
+.chat-wrapper {
+  mix-height: 600px;
+  display: flex;
+  flex-direction: column;
+}
+
+.output-container {
+  height: 400px;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.empty-output {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message-item {
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 4px solid #e4e7ed;
+}
+
+.message-item.message-info {
+  background-color: #f0f9ff;
+  border-left-color: #409eff;
+}
+
+.message-item.message-start {
+  background-color: #f0f9ff;
+  border-left-color: #409eff;
+}
+
+.message-item.message-progress {
+  background-color: #fff7e6;
+  border-left-color: #e6a23c;
+}
+
+.message-item.message-complete {
+  background-color: #f0f9ff;
+  border-left-color: #67c23a;
+}
+
+.message-item.message-error {
+  background-color: #fef0f0;
+  border-left-color: #f56c6c;
+}
+
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.message-icon {
+  font-size: 14px;
+}
+
+.message-type {
+  font-size: 12px;
+  font-weight: 500;
+  color: #606266;
+}
+
+.message-time {
+  font-size: 11px;
+  color: #909399;
+  margin-left: auto;
+}
+
+.message-content {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #303133;
+}
+
+.generation-progress {
+  margin: 16px 0;
+  padding: 16px;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+}
+
+.progress-text {
+  text-align: center;
+  margin-top: 8px;
+  font-size: 14px;
+  color: #606266;
+}
+
+/* 结果列表样式 */
+.results-card {
+  max-height: 500px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cases-list {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.case-item {
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  padding: 16px;
+  background: white;
+  transition: all 0.3s;
+}
+
+.case-item:hover {
+  border-color: #c6e2ff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.case-item.selected {
+  border-color: #409eff;
+  background-color: #f0f9ff;
+}
+
+.case-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.case-title {
+  flex: 1;
+  font-weight: 500;
+  color: #303133;
+}
+
+.case-content {
+  padding-left: 32px;
+}
+
+.case-steps {
+  margin-bottom: 12px;
+}
+
+.case-steps ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.case-steps li {
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
+
+.case-expected strong {
+  color: #606266;
+}
+
+.case-expected p {
+  margin: 8px 0 0 0;
+  line-height: 1.5;
+  color: #303133;
+}
+
+.loading-placeholder {
+  padding: 20px 0;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .page-content {
+    padding: 16px;
+  }
+
+  .generation-container {
+    gap: 16px;
+  }
+
+  .output-container {
+    height: 300px;
+  }
+
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

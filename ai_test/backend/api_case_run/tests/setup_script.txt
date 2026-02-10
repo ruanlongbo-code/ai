@@ -1,0 +1,8 @@
+a = 100
+b = 200
+print("前置脚本执行a+b的结果:",a+b)
+test.re_extract("aaaaaaaaa1234563456ddddddddddd",r"a(.+?)d")
+
+sql = "SELECT name FROM students"
+# 执行mysql语句
+res = db.mysql_db.execute(sql)

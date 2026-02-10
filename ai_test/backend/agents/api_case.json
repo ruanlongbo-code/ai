@@ -1,0 +1,697 @@
+[
+  {
+    "name": "用户登录_正常账号密码登录成功",
+    "description": "验证使用正确账号密码调用登录接口时，返回200且响应体包含token及userInfo.userId为整数",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{account}}",
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "account = \"user123\"\npassword = \"Pass@123\"\ntest.save_test_env_variables(\"account\", account)\ntest.save_test_env_variables(\"password\", password)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 200
+        },
+        {
+          "type": "not_null",
+          "field": "token",
+          "expected": true
+        },
+        {
+          "type": "not_null",
+          "field": "userInfo",
+          "expected": true
+        },
+        {
+          "type": "equal",
+          "field": "userInfo.userId",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_使用邮箱登录成功",
+    "description": "验证用户使用正确邮箱和密码登录时，接口返回200且token非空",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login_by_email",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{email}}",
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "email = 'user@mstest.com'\npassword = 'Pass@123'\ntest.save_test_env_variables('email', email)\ntest.save_test_env_variables('password', password)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 200
+        },
+        {
+          "type": "not_null",
+          "field": "token",
+          "expected": true
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_账号为空",
+    "description": "验证当 username 字段缺失/传空时，登录接口返回 ≥400 的错误状态码",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "password = \"Pass@123\"\ntest.save_test_env_variables(\"password\", password)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_密码为空",
+    "description": "验证登录接口在仅提供账号、缺失密码时返回 4xx 错误",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{account}}",
+        "password": ""
+      },
+      "files": {},
+      "setup_script": "account = 'user123'\ntest.save_test_env_variables(\"account\", account)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_账号password均为空",
+    "description": "验证登录接口在请求体完全为空时，服务端返回4xx错误",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {},
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_账号为null",
+    "description": "验证登录接口在account字段为null时返回4xx异常状态码",
+    "interface": "POST /api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": null,
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "password = \"Pass@123\"\ntest.save_test_env_variables(\"password\", password)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_密码为null",
+    "description": "验证当password字段为null时，登录接口返回httpCode≥400的错误响应",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{account}}",
+        "password": null
+      },
+      "files": {},
+      "setup_script": "account = global_function.random_account()\ntest.save_test_env_variables(\"account\", account)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_账号为空字符串",
+    "description": "验证当account为空字符串时，接口返回401并给出“用户名或密码错误”提示",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "",
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 401
+        },
+        {
+          "type": "equal",
+          "field": "description",
+          "expected": "用户名或密码错误"
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_密码为空字符串",
+    "description": "验证当password为空字符串时，登录接口返回401并提示用户名或密码错误",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{account}}",
+        "password": ""
+      },
+      "files": {},
+      "setup_script": "account = global_function.random_account()\ntest.save_test_env_variables(\"account\", account)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 401
+        },
+        {
+          "type": "equal",
+          "field": "description",
+          "expected": "用户名或密码错误"
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_账号为数字类型-异常400",
+    "description": "验证当account字段为纯数字时，登录接口应返回4xx错误",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login_post",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{numeric_account}}",
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "numeric_account = \"123\"\ntest.save_test_env_variables(\"numeric_account\", numeric_account)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_密码为数字类型",
+    "description": "验证当密码字段传入数字类型时，接口应返回400及以上状态码",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{username}}",
+        "password": 123
+      },
+      "files": {},
+      "setup_script": "username = global_function.random_account()\ntest.save_test_env_variables(\"username\",username)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_超长账号_长度100+",
+    "description": "验证当账号长度超过100位时，登录接口返回401 Unauthorized",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{long_account}}",
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "long_account = 'a' * 105\ntest.save_test_env_variables(\"long_account\", long_account)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 401
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_超长密码_长度100+",
+    "description": "验证当密码长度超过100位时，登录接口返回401状态码",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{account}}",
+        "password": "${{long_pwd}}"
+      },
+      "files": {},
+      "setup_script": "long_pwd = 'b' * 105\ntest.save_test_env_variables('long_pwd', long_pwd)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 401
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_账号含特殊字符允许登录",
+    "description": "验证当账号字段包含下划线、叹号、井号等特殊字符时，接口能够正常返回 200 或按业务规则返回 401",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{account_special}}",
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "account_special = 'user_123!@#'\ntest.save_test_env_variables(\"account_special\", account_special)",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 200
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_密码包含空格",
+    "description": "验证当密码字段中出现空格字符时，登录接口返回401未授权",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{account}}",
+        "password": "Pass 123"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 401
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_用户名错误",
+    "description": "使用不存在的用户名和正确密码调用登录接口，验证返回401及错误描述“用户名或密码错误”",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "nonexistent",
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 401
+        },
+        {
+          "type": "equal",
+          "field": "description",
+          "expected": "用户名或密码错误"
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_密码错误",
+    "description": "验证当用户输入错误密码时，接口返回401且错误描述为“用户名或密码错误”",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{account}}",
+        "password": "WrongPass"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 401
+        },
+        {
+          "type": "equal",
+          "field": "description",
+          "expected": "用户名或密码错误"
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_请求体缺少password字段",
+    "description": "验证登录接口在请求体仅传account、缺失password字段时返回4xx错误",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{account}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_请求体缺少account字段",
+    "description": "验证登录接口在请求体缺失必填字段account时，服务端返回400及以上状态码",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "password": "${{password}}"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 400
+        }
+      ]
+    },
+    "state": "可用"
+  },
+  {
+    "name": "用户登录_同时发送多余字段",
+    "description": "验证登录接口在请求体中携带多余字段时仍能正常返回200",
+    "interface": "/api/users/login",
+    "preconditions": [],
+    "request": {
+      "interface_id": "login_with_redundant_field",
+      "method": "POST",
+      "url": "/api/users/login",
+      "base_url": "${{base_url}}",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "params": {},
+      "body": {
+        "account": "${{account}}",
+        "password": "${{password}}",
+        "captcha": "1234"
+      },
+      "files": {},
+      "setup_script": "",
+      "teardown_script": ""
+    },
+    "assertions": {
+      "response": [
+        {
+          "type": "http_code",
+          "field": "http_code",
+          "expected": 200
+        }
+      ]
+    },
+    "state": "可用"
+  }
+]

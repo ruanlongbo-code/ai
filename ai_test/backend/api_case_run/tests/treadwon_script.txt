@@ -1,0 +1,6 @@
+print("后置脚本中获取变量a:",a)
+print("后置脚本中获取变量b:",b)
+a2 = 100
+b2 = 200
+print("后置脚本执行a2+b2的结果:",a2+b2)
+print("response:",response)

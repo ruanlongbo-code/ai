@@ -1,0 +1,12 @@
+2025-09-11 10:57:07,227 - lightrag - INFO - Reranking is disabled
+2025-09-11 10:57:09,622 - lightrag - INFO - [_] Created new empty graph fiel: E:\ai_test\rag\rag_storage\graph_chunk_entity_relation.graphml
+2025-09-11 10:57:09,938 - uvicorn.error - INFO - Started server process [6856]
+2025-09-11 10:57:09,938 - uvicorn.error - INFO - Waiting for application startup.
+2025-09-11 10:57:09,939 - lightrag - INFO - [_] Process 6856 KV load full_docs with 0 records
+2025-09-11 10:57:09,939 - lightrag - INFO - [_] Process 6856 KV load text_chunks with 0 records
+2025-09-11 10:57:09,940 - lightrag - INFO - [_] Process 6856 KV load full_entities with 0 records
+2025-09-11 10:57:09,940 - lightrag - INFO - [_] Process 6856 KV load full_relations with 0 records
+2025-09-11 10:57:09,941 - lightrag - INFO - [_] Process 6856 KV load llm_response_cache with 0 records
+2025-09-11 10:57:09,941 - lightrag - INFO - [_] Process 6856 doc status load doc_status with 0 records
+2025-09-11 10:57:09,942 - uvicorn.error - INFO - Application startup complete.
+2025-09-11 10:57:09,943 - uvicorn.error - INFO - Uvicorn running on http://0.0.0.0:9621 (Press CTRL+C to quit)
