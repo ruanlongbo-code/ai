@@ -181,7 +181,75 @@ const handleRegister = () => {
   margin-bottom: 24px;
 }
 
+/* 输入框样式 */
+.login-form :deep(.el-input__wrapper) {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.4);
+  border-radius: 0;
+  box-shadow: none;
+  transition: all 0.3s ease;
+}
 
+.login-form :deep(.el-input__wrapper:hover) {
+  border-bottom-color: rgba(139, 92, 246, 0.7);
+  background: transparent;
+}
+
+.login-form :deep(.el-input__wrapper.is-focus) {
+  border-bottom-color: #8b5cf6;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 输入文字颜色 */
+.login-form :deep(.el-input__inner) {
+  color: #ffffff;
+  caret-color: #ffffff;
+  background: transparent !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.login-form :deep(.el-input__inner::placeholder) {
+  color: rgba(255, 255, 255, 0.45);
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.45) !important;
+}
+
+/* 去除浏览器自动填充的白色背景 */
+.login-form :deep(.el-input__inner:-webkit-autofill),
+.login-form :deep(.el-input__inner:-webkit-autofill:hover),
+.login-form :deep(.el-input__inner:-webkit-autofill:focus),
+.login-form :deep(.el-input__inner:-webkit-autofill:active) {
+  -webkit-box-shadow: 0 0 0 1000px transparent inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  background: transparent !important;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+/* 前缀图标颜色 */
+.login-form :deep(.el-input__prefix .el-icon) {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* 后缀图标（清除按钮、密码切换）颜色 */
+.login-form :deep(.el-input__suffix .el-icon) {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.login-form :deep(.el-input__suffix .el-icon:hover) {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* 去除校验失败的红色边框 */
+.login-form :deep(.el-form-item.is-error .el-input__wrapper) {
+  box-shadow: none;
+  border-color: #f56c6c;
+}
+
+/* 记住密码复选框 */
+.login-form :deep(.el-checkbox__label) {
+  color: rgba(255, 255, 255, 0.7);
+}
 
 .login-btn {
   width: 100%;
