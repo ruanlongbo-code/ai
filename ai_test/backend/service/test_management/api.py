@@ -660,7 +660,7 @@ async def create_test_task(
     project, user = project_and_user
 
     # 验证任务类型
-    valid_types = ['api', 'ui']
+    valid_types = ['api', 'ui', 'functional']
     if task_data.type not in valid_types:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
