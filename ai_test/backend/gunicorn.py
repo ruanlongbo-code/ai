@@ -1,7 +1,10 @@
 import multiprocessing
+import asyncio
+from tortoise import Tortoise
+from main import TORTOISE_ORM
 
-# 工作进程
-workers = multiprocessing.cpu_count() * 2 + 1
+# 工作进程（暂时使用 1 个 worker 来避免数据库初始化问题）
+workers = 1
 # 设置守护进程 - Docker容器中必须为False，否则容器会退出
 daemon = False
 # 监听内网端口8000
@@ -21,3 +24,29 @@ threads = 2
 worker_connections = 2000
 # 错误日志的日志级别
 loglevel = 'info'
+
+# 在每个 worker 启动时初始化数据库
+def on_starting(server):
+    """主进程启动时执行"""
+    pass
+
+def when_ready(server):
+    """所有 worker 启动完成时执行"""
+    pass
+
+def post_fork(server, worker):
+    """每个 worker 进程启动时执行"""
+    # 在每个 worker 中初始化数据库
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        loop.run_until_complete(Tortoise.init(config=TORTOISE_ORM))
+        print(f"Worker {worker.pid}: Database initialized")
+    except Exception as e:
+        print(f"Worker {worker.pid}: Failed to initialize database: {e}")
+
+def pre_fork(server, worker):
+    """worker 进程 fork 之前执行"""
+    pass
