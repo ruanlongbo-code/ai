@@ -464,8 +464,9 @@ const loadRequirements = async () => {
   }
 }
 
-const handleRefresh = () => {
-  loadRequirements()
+const handleRefresh = async () => {
+  await loadRequirements()
+  ElMessage.success('刷新成功')
 }
 
 const handleCreateRequirement = () => {

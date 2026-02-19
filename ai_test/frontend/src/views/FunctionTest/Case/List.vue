@@ -467,9 +467,9 @@ const handlePageSizeChange = (pageSize) => {
   loadCases()
 }
 
-const handleRefresh = () => {
-  loadCases()
-  loadRequirements()
+const handleRefresh = async () => {
+  await Promise.all([loadCases(), loadRequirements()])
+  ElMessage.success('刷新成功')
 }
 
 const handleRowClick = (row) => {

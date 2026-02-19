@@ -28,33 +28,46 @@ request.interceptors.request.use(
 
 // 响应拦截器
 request.interceptors.response.use(
-	response => {
-		if (response.status === 200) {
-			return response
-		}
+	(response) => {
+		return response
 	},
-	error => {
+	(error) => {
 		const userStore = useUserStore()
-        // 处理401未授权错误
-		if (error.response && error.response.status === 401 && response.config.url !== '/login') {
-			ElMessage.error('登录已过期，请重新登录')
-			userStore.logout()
-			router.push('/login')
+
+		// 处理401未授权错误（token过期或无效）
+		if (error.response && error.response.status === 401) {
+			// 排除登录接口本身的401（用户名密码错误）
+			const requestUrl = error.response.config?.url || ''
+			if (!requestUrl.includes('/login')) {
+				ElMessage.error('登录已过期，请重新登录')
+				userStore.logout()
+				router.push('/login')
+				return Promise.reject(error)
+			}
+		}
+
+		// 处理403权限不足
+		if (error.response && error.response.status === 403) {
+			ElMessage.error('没有操作权限')
 			return Promise.reject(error)
 		}
-        // 网络错误处理
-        if (error.code === 'ERR_NETWORK' || error.message.includes('Network Error')) {
-            ElNotification({
-                title: '网络错误',
-                message: '网络错误，请检查网络是否正常，检查后端服务状态！',
-                type: 'error',
-                duration: 1500
-            })
-            if (error.response && error.response.status === 500) {
-                ElMessage.error('服务器错误')
-                return Promise.reject(error)
-            }
-        }
+
+		// 处理500服务器错误
+		if (error.response && error.response.status === 500) {
+			ElMessage.error('服务器内部错误')
+			return Promise.reject(error)
+		}
+
+		// 网络错误处理
+		if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
+			ElNotification({
+				title: '网络错误',
+				message: '网络错误，请检查网络是否正常，检查后端服务状态！',
+				type: 'error',
+				duration: 3000
+			})
+		}
+
 		return Promise.reject(error)
 	}
 )

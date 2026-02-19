@@ -27,7 +27,7 @@
             style="width: 240px;"
         />
         
-        <el-button @click="loadRunHistory" icon="Refresh">刷新</el-button>
+        <el-button @click="handleRefresh" icon="Refresh">刷新</el-button>
       </div>
     </div>
 
@@ -240,6 +240,11 @@ const getStatusType = (status) => {
     pending: 'info'
   }
   return statusMap[status] || 'info'
+}
+
+const handleRefresh = async () => {
+  await loadRunHistory()
+  ElMessage.success('刷新成功')
 }
 
 const getStatusText = (status) => {

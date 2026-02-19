@@ -201,8 +201,9 @@ const fetchEnvironments = async () => {
 }
 
 // 刷新环境列表
-const refreshEnvironments = () => {
-  fetchEnvironments()
+const refreshEnvironments = async () => {
+  await fetchEnvironments()
+  ElMessage.success('刷新成功')
 }
 
 // 处理分页大小变化

@@ -126,7 +126,17 @@ class TestTaskCreateRequest(BaseModel):
     """测试任务创建请求"""
     task_name: str = Field(..., min_length=1, max_length=255, description="任务名称")
     description: Optional[str] = Field(None, description="任务描述")
-    type: str = Field(..., description="任务类型：api/ui")
+    type: str = Field(..., description="任务类型：api/ui/functional")
+
+    class Config:
+        from_attributes = True
+
+
+class TestTaskUpdateRequest(BaseModel):
+    """测试任务更新请求"""
+    task_name: Optional[str] = Field(None, min_length=1, max_length=255, description="任务名称")
+    description: Optional[str] = Field(None, description="任务描述")
+    type: Optional[str] = Field(None, description="任务类型：api/ui/functional")
 
     class Config:
         from_attributes = True

@@ -20,7 +20,7 @@ export default defineConfig(({mode}) => {
         },
         server: {
             // 是否自动打开浏览器
-            open: JSON.parse(env.VITE_OPEN),
+            open: env.VITE_OPEN ? JSON.parse(env.VITE_OPEN) : false,
             // 本地访问
             // host: 'localhost',
             // 0.0.0.0表示监听所有网卡的请求，包括局域网和公网
@@ -28,7 +28,7 @@ export default defineConfig(({mode}) => {
             // 是否开启热更新
             hmr: true,
             // 端口号
-            port: env.VITE_PORT
+            port: env.VITE_PORT ? parseInt(env.VITE_PORT) : 5173
         },
         css: {
             preprocessorOptions: {

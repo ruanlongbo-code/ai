@@ -62,7 +62,20 @@ class AuthUtils:
     @staticmethod
     def verify_token(token: str, token_type: str = "access") -> Optional[dict]:
         """验证令牌"""
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        except jwt.exceptions.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="登录已过期，请重新登录",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except jwt.exceptions.InvalidTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="无效的token，请重新登录",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         if payload.get("type") != token_type:
             return None
         return payload

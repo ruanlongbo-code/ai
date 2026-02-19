@@ -100,8 +100,8 @@
         </el-table-column>
         <el-table-column label="类型" width="120" align="center">
           <template #default="{row}">
-            <el-tag :type="row.type === 'api' ? 'success' : 'warning'">
-              {{ row.type === 'api' ? 'API' : 'UI' }}
+            <el-tag :type="typeTagType(row.type)">
+              {{ typeLabel(row.type) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -183,6 +183,16 @@ const hasActiveFilters = computed(() => !!(filters.type || filters.keyword))
 // 新建计划对话框
 const createDialogVisible = ref(false)
 const createDialogRef = ref(null)
+
+const typeLabel = (type) => {
+  const map = { api: 'API', ui: 'UI', functional: '功能测试' }
+  return map[type] || type || '-'
+}
+
+const typeTagType = (type) => {
+  const map = { api: 'success', ui: 'warning', functional: '' }
+  return map[type] || 'info'
+}
 
 const formatDate = (val) => {
   if (!val) return '-'
@@ -323,8 +333,13 @@ const handleCreateSubmit = async (payload) => {
     ElMessage.error('创建测试计划失败，请稍后重试')
   }
 }
-const handleRefresh = () => {
-  loadTasks()
+const handleRefresh = async () => {
+  // 清空筛选条件，重新加载全部数据
+  filters.type = ''
+  filters.keyword = ''
+  pagination.page = 1
+  await loadTasks()
+  ElMessage.success('刷新成功')
 }
 const viewDetail = (row) => {
   const pid = getProjectId()

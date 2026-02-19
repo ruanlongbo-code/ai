@@ -382,8 +382,9 @@ const handleSubmit = async () => {
     submitting.value = false
   }
 }
-const handleRefresh = () => {
-  loadSuites()
+const handleRefresh = async () => {
+  await loadSuites()
+  ElMessage.success('刷新成功')
 }
 const viewDetail = (row) => {
   ElMessage.info(`查看套件（开发中）：${row.suite_name}`)

@@ -17,9 +17,9 @@ class TestTask(Model):
     task_name = fields.CharField(max_length=255, description="任务名称")
     description = fields.TextField(null=True, description="任务描述")
     type = fields.CharField(
-        max_length=10,
-        choices=[('api', 'API'), ('ui', 'UI')],
-        description="任务类型（接口 / UI）"
+        max_length=20,
+        choices=[('api', 'API'), ('ui', 'UI'), ('functional', 'Functional')],
+        description="任务类型（接口 / UI / 功能）"
     )
     status = fields.CharField(
         max_length=20,

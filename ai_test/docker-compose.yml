@@ -29,6 +29,12 @@ services:
     image: py_backend
     container_name: py_backend
     restart: always
+    environment:
+      - DATA_BASE_HOST=mysql
+      - DATA_BASE_PORT=3306
+      - DATA_BASE_USER=root
+      - DATA_BASE_PASSWORD=123456py
+      - DATA_BASE_NAME=fastapi
     volumes:
       - backend_logs:/app/logs
 

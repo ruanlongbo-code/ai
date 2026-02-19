@@ -26,22 +26,50 @@
                   </el-icon>
                   返回计划列表
                 </el-button>
-                <el-button
-                    type="primary"
-                    :loading="runningTest"
-                    @click="runTask"
-                >
-                  <el-icon>
-                    <VideoPlay/>
-                  </el-icon>
-                  运行计划
-                </el-button>
+                <!-- 非编辑态：显示编辑和运行按钮 -->
+                <template v-if="!isEditing">
+                  <el-button @click="startEditing">
+                    <el-icon>
+                      <Edit/>
+                    </el-icon>
+                    编辑计划
+                  </el-button>
+                  <el-button
+                      type="primary"
+                      :loading="runningTest"
+                      @click="runTask"
+                  >
+                    <el-icon>
+                      <VideoPlay/>
+                    </el-icon>
+                    运行计划
+                  </el-button>
+                </template>
+                <!-- 编辑态：显示保存和取消按钮 -->
+                <template v-else>
+                  <el-button @click="cancelEditing">取消</el-button>
+                  <el-button
+                      type="primary"
+                      :loading="saving"
+                      @click="saveTaskInfo"
+                  >
+                    <el-icon>
+                      <Check/>
+                    </el-icon>
+                    保存
+                  </el-button>
+                </template>
               </div>
             </div>
 
             <div class="card-body">
+              <!-- 编辑态提示条 -->
+              <div v-if="isEditing" class="editing-banner">
+                <el-icon><Edit/></el-icon>
+                <span>正在编辑中，修改后请点击「保存」按钮</span>
+              </div>
               <el-form
-                  :model="taskDetail"
+                  :model="editForm"
                   label-width="0px"
                   size="large"
                   class="modern-task-form"
@@ -50,9 +78,9 @@
                   <div class="form-group">
                     <label class="form-label">计划名称</label>
                     <el-input
-                        v-model="taskDetail.task_name"
+                        v-model="editForm.task_name"
                         placeholder="请输入计划名称"
-                        @blur="updateTaskInfo"
+                        :disabled="!isEditing"
                         maxlength="100"
                         show-word-limit
                         class="modern-input"
@@ -61,25 +89,25 @@
                   <div class="form-group">
                     <label class="form-label">计划类型</label>
                     <el-select
-                        v-model="taskDetail.type"
+                        v-model="editForm.type"
                         placeholder="选择计划类型"
-                        @change="updateTaskInfo"
+                        :disabled="!isEditing"
                         class="modern-select"
                     >
                       <el-option label="API测试" value="api"/>
                       <el-option label="UI测试" value="ui"/>
-                      <el-option label="混合测试" value="mixed"/>
+                      <el-option label="功能测试" value="functional"/>
                     </el-select>
                   </div>
                 </div>
                 <div class="form-group full-width">
                   <label class="form-label">计划描述</label>
                   <el-input
-                      v-model="taskDetail.description"
+                      v-model="editForm.description"
                       type="textarea"
                       :rows="3"
                       placeholder="请输入计划描述"
-                      @blur="updateTaskInfo"
+                      :disabled="!isEditing"
                       maxlength="500"
                       show-word-limit
                       class="modern-textarea"
@@ -397,6 +425,7 @@ import draggable from 'vuedraggable'
 // 导入API
 import { 
   getTestTaskDetail, 
+  updateTestTask,
   getTestSuites, 
   addSuiteToTask as apiAddSuiteToTask,
   deleteSuiteFromTask as apiDeleteSuiteFromTask,
@@ -420,6 +449,10 @@ const loading = ref(false)
 const loadingSuites = ref(false)
 const loadingEnvironments = ref(false)
 const runningTest = ref(false)
+const saving = ref(false)
+
+// 编辑态控制
+const isEditing = ref(false)
 
 // 测试计划详情
 const taskDetail = ref({
@@ -429,6 +462,13 @@ const taskDetail = ref({
   type: 'api',
   status: 'pending',
   suites: []
+})
+
+// 编辑表单（独立于 taskDetail，避免直接修改原数据）
+const editForm = reactive({
+  task_name: '',
+  description: '',
+  type: 'api'
 })
 
 // 右侧tabs
@@ -469,6 +509,8 @@ const loadTaskDetail = async () => {
   try {
     const response = await getTestTaskDetail(projectId.value, taskId.value)
     taskDetail.value = response.data
+    // 同步到编辑表单
+    syncEditForm()
   } catch (error) {
     console.error('加载测试计划详情失败:', error)
     ElMessage.error('加载测试计划详情失败')
@@ -477,9 +519,61 @@ const loadTaskDetail = async () => {
   }
 }
 
-const updateTaskInfo = async () => {
-  // 这里可以添加更新测试计划基本信息的逻辑
-  ElMessage.success('计划信息已更新')
+// 将 taskDetail 同步到编辑表单
+const syncEditForm = () => {
+  editForm.task_name = taskDetail.value.task_name || ''
+  editForm.description = taskDetail.value.description || ''
+  editForm.type = taskDetail.value.type || 'api'
+}
+
+// 进入编辑态
+const startEditing = () => {
+  syncEditForm()
+  isEditing.value = true
+}
+
+// 取消编辑
+const cancelEditing = () => {
+  syncEditForm()  // 恢复为原始数据
+  isEditing.value = false
+  ElMessage.info('已取消编辑')
+}
+
+// 保存编辑
+const saveTaskInfo = async () => {
+  // 校验必填项
+  if (!editForm.task_name?.trim()) {
+    ElMessage.error('计划名称不能为空')
+    return
+  }
+
+  saving.value = true
+  try {
+    const updateData = {
+      task_name: editForm.task_name.trim(),
+      description: editForm.description || '',
+      type: editForm.type
+    }
+    const response = await updateTestTask(projectId.value, taskId.value, updateData)
+
+    // 用后端返回的最新数据更新本地
+    taskDetail.value = {
+      ...taskDetail.value,
+      task_name: response.data.task_name,
+      description: response.data.description,
+      type: response.data.type,
+      updated_at: response.data.updated_at
+    }
+    syncEditForm()
+
+    isEditing.value = false
+    ElMessage.success('计划信息已保存')
+  } catch (error) {
+    console.error('保存计划信息失败:', error)
+    ElMessage.error(error.response?.data?.detail || '保存失败，请重试')
+  } finally {
+    saving.value = false
+  }
 }
 
 const loadAvailableSuites = async () => {
@@ -700,6 +794,24 @@ onMounted(() => {
 
 .card-body {
   padding: 16px;
+}
+
+.editing-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  background: #fef9c3;
+  border: 1px solid #fde047;
+  border-radius: 8px;
+  color: #854d0e;
+  font-size: 14px;
+}
+
+.editing-banner .el-icon {
+  color: #ca8a04;
+  font-size: 16px;
 }
 
 .modern-task-form {
