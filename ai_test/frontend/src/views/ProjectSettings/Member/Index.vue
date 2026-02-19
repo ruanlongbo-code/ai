@@ -412,8 +412,9 @@ const fetchProjectMembers = async () => {
 }
 
 // 刷新成员列表
-const refreshMembers = () => {
-  fetchProjectMembers()
+const refreshMembers = async () => {
+  await fetchProjectMembers()
+  ElMessage.success('刷新成功')
 }
 
 // 获取项目详情

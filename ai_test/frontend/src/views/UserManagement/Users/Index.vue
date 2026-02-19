@@ -301,8 +301,9 @@ const handleReset = () => {
   fetchUsers()
 }
 
-const handleRefresh = () => {
-  fetchUsers()
+const handleRefresh = async () => {
+  await fetchUsers()
+  ElMessage.success('刷新成功')
 }
 
 const handlePageChange = (p) => {

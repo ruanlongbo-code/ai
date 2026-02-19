@@ -161,8 +161,9 @@ const fetchModules = async () => {
 }
 
 // 刷新模块列表
-const refreshModules = () => {
-  fetchModules()
+const refreshModules = async () => {
+  await fetchModules()
+  ElMessage.success('刷新成功')
 }
 
 // 重置表单

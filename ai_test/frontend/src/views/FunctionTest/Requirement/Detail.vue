@@ -171,7 +171,7 @@
                   <el-icon><MagicStick /></el-icon>
                   生成用例
                 </el-button>
-                <el-button @click="loadRelatedCases">
+                <el-button @click="handleRefreshCases">
                   <el-icon><Refresh /></el-icon>
                   刷新
                 </el-button>
@@ -403,6 +403,11 @@ const loadRelatedCases = async () => {
   } finally {
     casesLoading.value = false
   }
+}
+
+const handleRefreshCases = async () => {
+  await loadRelatedCases()
+  ElMessage.success('刷新成功')
 }
 
 const handleBack = () => {

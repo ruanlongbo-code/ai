@@ -206,8 +206,9 @@ const handleBack = () => {
 }
 
 // 处理刷新
-const handleRefresh = () => {
-  loadEnvironmentData()
+const handleRefresh = async () => {
+  await loadEnvironmentData()
+  ElMessage.success('刷新成功')
 }
 
 // 处理Tab切换

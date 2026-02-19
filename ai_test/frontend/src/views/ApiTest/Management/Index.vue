@@ -14,7 +14,7 @@
             </el-icon>
             新增接口
           </el-button>
-          <el-button @click="fetchInterfaceList">
+          <el-button @click="handleRefresh">
             <el-icon>
               <Refresh/>
             </el-icon>
@@ -360,6 +360,11 @@ const fetchInterfaceList = async () => {
   }
 }
 
+
+const handleRefresh = async () => {
+  await fetchInterfaceList()
+  ElMessage.success('刷新成功')
+}
 
 // 获取方法标签类型
 const getMethodTagType = (method) => {
