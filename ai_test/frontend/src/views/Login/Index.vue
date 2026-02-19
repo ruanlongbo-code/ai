@@ -11,7 +11,6 @@
         :model="loginForm"
         :rules="loginRules"
         class="login-form"
-        @keyup.enter="handleLogin"
       >
         <el-form-item prop="username">
           <el-input
@@ -20,11 +19,13 @@
             size="large"
             prefix-icon="User"
             clearable
+            @keyup.enter="focusPassword"
           />
         </el-form-item>
         
         <el-form-item prop="password">
           <el-input
+            ref="passwordInputRef"
             v-model="loginForm.password"
             type="password"
             placeholder="请输入密码"
@@ -32,6 +33,7 @@
             prefix-icon="Lock"
             show-password
             clearable
+            @keyup.enter="handleLogin"
           />
         </el-form-item>
         
@@ -77,6 +79,7 @@ const router = useRouter()
 const userStore = useUserStore()
 
 const loginFormRef = ref()
+const passwordInputRef = ref()
 const loading = ref(false)
 
 const loginForm = reactive({
@@ -85,19 +88,28 @@ const loginForm = reactive({
   remember: false
 })
 
+// 验证规则：不设置 trigger，仅在手动调用 validate() 时触发
 const loginRules = {
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 50, message: '用户名长度在 3 到 50 个字符', trigger: 'blur' }
+    { required: true, message: '请输入用户名', trigger: [] },
+    { min: 3, max: 50, message: '用户名长度在 3 到 50 个字符', trigger: [] }
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 128, message: '密码长度在 6 到 128 个字符', trigger: 'blur' }
+    { required: true, message: '请输入密码', trigger: [] },
+    { min: 6, max: 128, message: '密码长度在 6 到 128 个字符', trigger: [] }
   ]
+}
+
+// 用户名回车 → 自动聚焦密码框
+const focusPassword = () => {
+  passwordInputRef.value?.focus()
 }
 
 const handleLogin = async () => {
   if (!loginFormRef.value) return
+  
+  // 先清除上一次的验证提示
+  loginFormRef.value.clearValidate()
   
   try {
     await loginFormRef.value.validate()
@@ -120,6 +132,8 @@ const handleLogin = async () => {
     router.push('/project')
     
   } catch (error) {
+    // 表单验证失败不弹 ElMessage（错误信息已在表单下方展示）
+    if (error === false || (typeof error === 'object' && !error.response)) return
     console.error('登录失败:', error)
     ElMessage.error(error.response?.data?.detail || '登录失败，请检查用户名和密码')
   } finally {

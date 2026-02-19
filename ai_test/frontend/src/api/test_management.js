@@ -104,6 +104,23 @@ export const createTestTask = (projectId, data) => {
 }
 
 /**
+ * 更新测试任务（测试计划）基本信息
+ * @param {number} projectId - 项目ID
+ * @param {number} taskId - 任务ID
+ * @param {Object} data - 更新数据
+ * @param {string} [data.task_name] - 任务名称
+ * @param {string} [data.description] - 任务描述
+ * @param {string} [data.type] - 任务类型 (api/ui/functional)
+ */
+export const updateTestTask = (projectId, taskId, data) => {
+  return request({
+    url: `/test_management/${projectId}/tasks/${taskId}`,
+    method: 'put',
+    data
+  })
+}
+
+/**
  * 删除测试任务（测试计划）
  * @param {number} projectId - 项目ID
  * @param {number} taskId - 任务ID
@@ -275,6 +292,7 @@ export default {
   createTestSuite,
   deleteTestSuite,
   createTestTask,
+  updateTestTask,
   deleteTestTask,
   addSuiteToTask,
   deleteSuiteFromTask,

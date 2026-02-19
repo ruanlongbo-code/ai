@@ -10,7 +10,7 @@ from .models import TestSuite, SuiteCaseRelation, TestTask, TaskSuiteRelation
 from service.api_test.models import ApiTestCase, ApiBaseCase, ApiInterface
 from .schemas import TestSuiteCreateRequest, TestSuiteResponse, TestSuiteDeleteResponse, TestSuiteListResponse, \
     TestSuiteDetailResponse, SuiteCaseItem, AddCaseToSuiteRequest, AddCaseToSuiteResponse, DeleteCaseFromSuiteResponse, \
-    ReorderSuiteCasesRequest, ReorderSuiteCasesResponse, TestTaskCreateRequest, TestTaskResponse, \
+    ReorderSuiteCasesRequest, ReorderSuiteCasesResponse, TestTaskCreateRequest, TestTaskUpdateRequest, TestTaskResponse, \
     TestTaskDeleteResponse, TestTaskListResponse, TestTaskDetailResponse, AddSuiteToTaskRequest, AddSuiteToTaskResponse, \
     DeleteSuiteFromTaskResponse, TaskSuiteItem, ReorderTaskSuitesRequest, ReorderTaskSuitesResponse
 
@@ -677,6 +677,70 @@ async def create_test_task(
     )
 
     # 返回创建的任务信息
+    return TestTaskResponse(
+        id=task.id,
+        task_name=task.task_name,
+        description=task.description,
+        type=task.type,
+        status=task.status,
+        project_id=project.id,
+        created_at=task.created_at,
+        updated_at=task.updated_at
+    )
+
+
+@router.put("/{project_id}/tasks/{task_id}", response_model=TestTaskResponse, summary="更新测试任务")
+async def update_test_task(
+        project_id: int,
+        task_id: int,
+        task_data: TestTaskUpdateRequest,
+        project_and_user: Tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """
+    更新测试任务基本信息
+
+    权限要求：项目负责人、项目编辑组或管理员
+
+    可更新字段：
+    - task_name: 任务名称
+    - description: 任务描述
+    - type: 任务类型 (api/ui/functional)
+    """
+    project, user = project_and_user
+
+    # 查找测试任务
+    task = await TestTask.filter(id=task_id, project_id=project.id).first()
+    if not task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="测试任务不存在"
+        )
+
+    # 构建更新数据
+    update_data = {}
+    if task_data.task_name is not None:
+        update_data['task_name'] = task_data.task_name
+    if task_data.description is not None:
+        update_data['description'] = task_data.description
+    if task_data.type is not None:
+        valid_types = ['api', 'ui', 'functional']
+        if task_data.type not in valid_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"任务类型无效，支持的类型：{', '.join(valid_types)}"
+            )
+        update_data['type'] = task_data.type
+
+    if not update_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="没有提供需要更新的字段"
+        )
+
+    # 更新任务
+    await task.update_from_dict(update_data)
+    await task.save()
+
     return TestTaskResponse(
         id=task.id,
         task_name=task.task_name,
