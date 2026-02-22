@@ -863,10 +863,8 @@ async def create_functional_case(
         )
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
-        raise e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="创建功能用例失败，请稍后重试"

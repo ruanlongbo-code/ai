@@ -1123,20 +1123,19 @@ async def get_suite_run_detail(
         case_runs = await ApiCaseRun.filter(suite_run_id=suite_run_id).prefetch_related('api_case')
         case_run_details = []
         for case_run in case_runs:
-            # 根据error_message推断执行状态
             if case_run.error_message:
-                status = "failed"
+                run_status = "failed"
             elif case_run.end_time:
-                status = "passed"
+                run_status = "passed"
             else:
-                status = "running"
+                run_status = "running"
                 
             case_run_details.append({
                 "id": case_run.id,
                 "suite_run_id": case_run.suite_run_id,
                 "api_case_id": case_run.api_case.id,
                 "case_name": case_run.case_name,
-                "status": status,
+                "status": run_status,
                 "start_time": case_run.start_time,
                 "end_time": case_run.end_time,
                 "duration": float(case_run.duration) if case_run.duration else 0.0,
