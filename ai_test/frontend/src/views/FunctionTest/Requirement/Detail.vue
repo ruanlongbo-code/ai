@@ -171,6 +171,15 @@
                   <el-icon><MagicStick /></el-icon>
                   生成用例
                 </el-button>
+                <el-button
+                  type="warning"
+                  @click="showXmindDialog"
+                  :loading="exportingXmind"
+                  :disabled="relatedCases.length === 0"
+                >
+                  <el-icon><Download /></el-icon>
+                  导出 XMind
+                </el-button>
                 <el-button @click="handleRefreshCases">
                   <el-icon><Refresh /></el-icon>
                   刷新
@@ -240,18 +249,113 @@
     :case-id="selectedCaseId"
     :project-id="projectId"
   />
+
+  <!-- XMind 模板设置弹窗 -->
+  <el-dialog
+      v-model="xmindDialogVisible"
+      title="XMind 导出设置"
+      width="680px"
+      :close-on-click-modal="false"
+  >
+    <div class="xmind-dialog-content">
+      <!-- 模板预览 -->
+      <div class="template-preview">
+        <h4>默认模板格式预览</h4>
+        <div class="preview-tree">
+          <div class="tree-node root">
+            <span class="node-icon">📋</span>
+            <span class="node-text">{{ xmindSettings.root_prefix }}{{ requirement?.title || 'xxx' }}{{ xmindSettings.root_suffix }}</span>
+          </div>
+          <div class="tree-node level1">
+            <span class="tree-line">├─</span>
+            <span class="node-text">
+              <template v-if="xmindSettings.show_priority">{P0} </template>
+              <template v-if="xmindSettings.show_case_id">[TC_001] </template>
+              xxx（用例标题）
+            </span>
+          </div>
+          <div class="tree-node level2">
+            <span class="tree-line">│ &nbsp; └─</span>
+            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '前置条件：\n' : '' }}1.前置条件内容1
+2.前置条件内容2</span>
+          </div>
+          <div class="tree-node level3">
+            <span class="tree-line">│ &nbsp; &nbsp; &nbsp; └─</span>
+            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '测试步骤：\n' : '' }}1.测试步骤1
+2.测试步骤2</span>
+          </div>
+          <div class="tree-node level4">
+            <span class="tree-line">│ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; └─</span>
+            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '预期结果：\n' : '' }}1.预期结果1
+2.预期结果2</span>
+          </div>
+          <div class="tree-node level1">
+            <span class="tree-line">├─</span>
+            <span class="node-text">
+              <template v-if="xmindSettings.show_priority">{P1} </template>
+              xxx（用例标题）
+            </span>
+          </div>
+          <div class="tree-node level1">
+            <span class="tree-line">└─</span>
+            <span class="node-text">...（更多用例）</span>
+          </div>
+        </div>
+        <p class="preview-note">* 默认不注明节点属性</p>
+      </div>
+
+      <!-- 模板设置选项 -->
+      <el-divider content-position="left">模板设置（可根据需要调整）</el-divider>
+
+      <el-form label-width="160px" class="template-form">
+        <el-form-item label="根节点前缀">
+          <el-input v-model="xmindSettings.root_prefix" placeholder="验证" style="width: 120px;" />
+        </el-form-item>
+        <el-form-item label="根节点后缀">
+          <el-input v-model="xmindSettings.root_suffix" placeholder="功能" style="width: 120px;" />
+        </el-form-item>
+
+        <el-divider />
+
+        <el-form-item label="用例标题显示优先级">
+          <el-switch v-model="xmindSettings.show_priority" />
+          <span class="setting-hint">如 {P0}、{P1}、{P2}</span>
+        </el-form-item>
+        <el-form-item label="用例标题显示编号">
+          <el-switch v-model="xmindSettings.show_case_id" />
+          <span class="setting-hint">如 [TC_001]</span>
+        </el-form-item>
+
+        <el-divider />
+
+          <el-form-item label="注明节点属性">
+            <el-switch v-model="xmindSettings.show_node_labels" />
+            <span class="setting-hint">开启后子节点显示属性标签，如 "前置条件：xxx"、"测试步骤：xxx"</span>
+          </el-form-item>
+      </el-form>
+    </div>
+
+    <template #footer>
+      <el-button @click="xmindDialogVisible = false">取消</el-button>
+      <el-button type="primary" :loading="exportingXmind" @click="handleExportXmind">
+        <el-icon><Download /></el-icon>
+        确认导出
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Edit, MagicStick, Refresh } from '@element-plus/icons-vue'
+import { ArrowLeft, Edit, MagicStick, Refresh, Download } from '@element-plus/icons-vue'
 import {
   getRequirementDetail,
   updateRequirement,
   generateFunctionalCases,
   getFunctionalCasesList,
+  exportCasesAsXmind,
   REQUIREMENT_STATUS_LABELS,
   REQUIREMENT_PRIORITY_LABELS,
   REQUIREMENT_PRIORITY_COLORS
@@ -278,6 +382,17 @@ const editFormRef = ref()
 // 用例详情弹框相关
 const showCaseDetailModal = ref(false)
 const selectedCaseId = ref(null)
+
+// XMind 导出相关
+const xmindDialogVisible = ref(false)
+const exportingXmind = ref(false)
+const xmindSettings = reactive({
+  show_priority: true,
+  show_case_id: false,
+  show_node_labels: false,
+  root_prefix: '验证',
+  root_suffix: '功能',
+})
 
 // 编辑表单
 const editForm = reactive({
@@ -480,6 +595,48 @@ const handleViewCase = (caseItem) => {
   showCaseDetailModal.value = true
 }
 
+// ===== XMind 导出相关方法 =====
+const showXmindDialog = () => {
+  xmindDialogVisible.value = true
+}
+
+const handleExportXmind = async () => {
+  if (!projectId.value || !requirementId.value) {
+    ElMessage.error('缺少必要参数')
+    return
+  }
+
+  try {
+    exportingXmind.value = true
+
+    const response = await exportCasesAsXmind(
+        projectId.value,
+        requirementId.value,
+        { ...xmindSettings }
+    )
+
+    // 处理文件下载
+    const blob = new Blob([response.data || response], { type: 'application/octet-stream' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    const title = requirement.value?.title || '测试用例'
+    link.download = `${title}_测试用例.xmind`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+
+    ElMessage.success('XMind 文件下载成功')
+    xmindDialogVisible.value = false
+  } catch (error) {
+    console.error('导出 XMind 失败:', error)
+    ElMessage.error('导出 XMind 文件失败，请确认已有生成的用例')
+  } finally {
+    exportingXmind.value = false
+  }
+}
+
 // 生命周期
 onMounted(async () => {
   await loadModules()
@@ -660,6 +817,103 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   min-height: 200px;
+}
+
+/* ===== XMind 弹窗样式 ===== */
+.xmind-dialog-content {
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.template-preview {
+  background: #f8f9fa;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.template-preview h4 {
+  margin: 0 0 16px 0;
+  font-size: 15px;
+  color: #303133;
+}
+
+.preview-tree {
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 13px;
+  line-height: 2;
+  color: #303133;
+  background: white;
+  border-radius: 6px;
+  padding: 16px 20px;
+  border: 1px solid #ebeef5;
+}
+
+.tree-node {
+  white-space: nowrap;
+}
+
+.tree-node.root {
+  font-weight: 600;
+  font-size: 14px;
+  color: #409eff;
+}
+
+.tree-node.level1 {
+  padding-left: 20px;
+  color: #303133;
+  font-weight: 500;
+}
+
+.tree-node.level2 {
+  padding-left: 20px;
+  color: #606266;
+}
+
+.tree-node.level3 {
+  padding-left: 20px;
+  color: #606266;
+}
+
+.tree-node.level4 {
+  padding-left: 20px;
+  color: #606266;
+}
+
+.node-icon {
+  margin-right: 6px;
+}
+
+.node-text.leaf {
+  color: #909399;
+  font-style: italic;
+}
+
+.node-text.preview-multiline {
+  white-space: pre-line;
+}
+
+.tree-line {
+  color: #c0c4cc;
+  margin-right: 6px;
+}
+
+.preview-note {
+  margin: 12px 0 0 0;
+  font-size: 12px;
+  color: #909399;
+  font-style: italic;
+}
+
+.template-form {
+  padding: 0 16px;
+}
+
+.setting-hint {
+  margin-left: 12px;
+  font-size: 12px;
+  color: #909399;
 }
 
 /* 响应式设计 */
