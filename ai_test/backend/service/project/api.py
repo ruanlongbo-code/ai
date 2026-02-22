@@ -3,13 +3,14 @@ from fastapi import APIRouter, HTTPException, Depends, status, Query
 from typing import Optional
 from tortoise.transactions import in_transaction
 from tortoise.exceptions import IntegrityError
-from .models import Project, ProjectMember, ProjectModule
+from .models import Project, ProjectMember, ProjectModule, BusinessLineMember
 from .schemas import (
     ProjectCreateRequest, ProjectResponse, ProjectListResponse, ProjectMemberAddRequest,
     ProjectMemberStatusUpdateRequest, ProjectMemberListResponse, ProjectMemberRoleUpdateRequest, ProjectUpdateRequest,
     ProjectDetailResponse, ProjectModuleCreateRequest, ProjectModuleUpdateRequest, ProjectModuleResponse,
     ProjectModuleListResponse, DashboardStatsResponse, DashboardTrendPoint, DashboardActivityItem,
-    DashboardCaseTrendPoint, DashboardTaskRunItem, DashboardTaskSummary
+    DashboardCaseTrendPoint, DashboardTaskRunItem, DashboardTaskSummary,
+    BusinessLineMemberInfo, BusinessLineMemberAddRequest, BusinessLineMemberUpdateRequest, UserBusinessLineInfo
 )
 from service.user.models import User
 from utils.auth import get_current_user
@@ -720,9 +721,11 @@ async def get_project_dashboard(
                 timestamp=ts.strftime("%Y-%m-%d %H:%M")
             )
 
+        modules_count = await ProjectModule.filter(project_id=project_id).count()
+
         return DashboardStatsResponse(
             project_id=project_id,
-            projects=1,
+            modules=modules_count,
             api_interfaces=api_interfaces_count,
             api_cases=api_cases_count,
             functional_cases=functional_cases_count,
@@ -852,191 +855,298 @@ async def update_project_member_role(
 
 # 项目模块管理接口
 
-@router.get("/{project_id}/modules", response_model=ProjectModuleListResponse, summary="获取项目模块列表")
+@router.get("/{project_id}/modules", response_model=ProjectModuleListResponse, summary="获取业务线树形列表")
 async def get_project_modules(
         project_id: int,
-        project_and_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+        current_user: User = Depends(get_current_user)
 ):
-    """
-    获取项目模块列表
-    
-    权限要求：项目成员或负责人
-    """
+    """获取业务线列表（树结构，含成员信息）- 所有登录用户可访问"""
     try:
-        project, current_user = project_and_user
+        project = await Project.get_or_none(id=project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        modules = await ProjectModule.filter(project_id=project_id).order_by("sort_order", "id")
 
-        # 获取项目模块列表
-        modules = await ProjectModule.filter(project_id=project_id).order_by("id")
+        # 获取所有一级业务线ID
+        top_ids = [m.id for m in modules if m.parent_id is None]
 
-        module_list = []
-        for module in modules:
-            module_list.append(ProjectModuleResponse(**{
-                "id": module.id,
-                "name": module.name,
-                "description": module.description,
-                "project_id": module.project_id,
-                "created_at": module.created_at,
-                "updated_at": module.updated_at
-            }))
+        # 获取所有一级业务线的成员
+        all_blm = await BusinessLineMember.filter(module_id__in=top_ids)
+        user_ids = list(set(b.user_id for b in all_blm))
+        users_map = {}
+        if user_ids:
+            users = await User.filter(id__in=user_ids)
+            users_map = {u.id: u for u in users}
 
-        return ProjectModuleListResponse(datas=module_list)
+        # 构建成员映射 {module_id: [BusinessLineMemberInfo]}
+        members_map = {}
+        for b in all_blm:
+            u = users_map.get(b.user_id)
+            if u:
+                info = BusinessLineMemberInfo(
+                    id=b.id, user_id=b.user_id,
+                    username=u.username,
+                    real_name=u.real_name,
+                    role=b.role
+                )
+                members_map.setdefault(b.module_id, []).append(info)
 
+        # 构建树
+        children_map = {}
+        for m in modules:
+            if m.parent_id is not None:
+                children_map.setdefault(m.parent_id, []).append(m)
+
+        tree = []
+        for m in modules:
+            if m.parent_id is not None:
+                continue  # 跳过子节点，在父节点中组装
+            child_list = []
+            for c in children_map.get(m.id, []):
+                child_list.append(ProjectModuleResponse(
+                    id=c.id, name=c.name, description=c.description,
+                    project_id=c.project_id, parent_id=c.parent_id,
+                    children=[], members=[],
+                    created_at=c.created_at, updated_at=c.updated_at
+                ))
+            tree.append(ProjectModuleResponse(
+                id=m.id, name=m.name, description=m.description,
+                project_id=m.project_id, parent_id=None,
+                children=child_list,
+                members=members_map.get(m.id, []),
+                created_at=m.created_at, updated_at=m.updated_at
+            ))
+
+        return ProjectModuleListResponse(datas=tree)
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="获取项目模块列表失败，请稍后重试"
-        )
+        logger.exception("获取业务线列表失败: %s", e)
+        raise HTTPException(status_code=500, detail="获取业务线列表失败")
 
 
-@router.post("/{project_id}/modules", response_model=ProjectModuleResponse, summary="创建项目模块")
+@router.post("/{project_id}/modules", summary="创建业务线/子模块")
 async def create_project_module(
         project_id: int,
         module_data: ProjectModuleCreateRequest,
-        project_and_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+        project_and_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
 ):
-    """
-    创建项目模块
-    
-    权限要求：项目成员或负责人
-    """
+    """创建业务线或子模块（仅管理员/项目负责人）"""
     try:
         project, current_user = project_and_user
 
-        # 检查模块名称是否重复
-        existing_module = await ProjectModule.get_or_none(
-            project_id=project_id,
-            name=module_data.name
-        )
-        if existing_module:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="该项目中已存在同名模块"
-            )
+        # 如果有父级，校验父级存在且属于同一项目
+        if module_data.parent_id:
+            parent = await ProjectModule.get_or_none(id=module_data.parent_id, project_id=project_id)
+            if not parent:
+                raise HTTPException(status_code=404, detail="父级业务线不存在")
+            if parent.parent_id is not None:
+                raise HTTPException(status_code=400, detail="只支持二级层级，不能在子模块下创建")
 
-        # 创建项目模块
+        # 同级重名校验
+        existing = await ProjectModule.get_or_none(
+            project_id=project_id, name=module_data.name, parent_id=module_data.parent_id
+        )
+        if existing:
+            raise HTTPException(status_code=400, detail="同级下已存在同名业务线")
+
         module = await ProjectModule.create(
             name=module_data.name,
             description=module_data.description,
-            project_id=project_id
+            project_id=project_id,
+            parent_id=module_data.parent_id
         )
 
         return {
-            "id": module.id,
-            "name": module.name,
-            "description": module.description,
-            "project_id": module.project_id,
-            "created_at": module.created_at,
-            "updated_at": module.updated_at
+            "id": module.id, "name": module.name, "description": module.description,
+            "project_id": module.project_id, "parent_id": module.parent_id,
+            "created_at": module.created_at, "updated_at": module.updated_at
         }
-
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="创建项目模块失败，请稍后重试"
-        )
+        logger.exception("创建业务线失败: %s", e)
+        raise HTTPException(status_code=500, detail="创建业务线失败")
 
 
-@router.put("/{project_id}/modules/{module_id}", response_model=ProjectModuleResponse, summary="更新项目模块")
+@router.put("/{project_id}/modules/{module_id}", summary="更新业务线/子模块")
 async def update_project_module(
         project_id: int,
         module_id: int,
         module_data: ProjectModuleUpdateRequest,
-        project_and_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+        project_and_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
 ):
-    """
-    更新项目模块
-    
-    权限要求：项目成员或负责人
-    """
+    """更新业务线名称和描述（仅管理员/项目负责人）"""
     try:
         project, current_user = project_and_user
-
-        # 检查模块是否存在
         module = await ProjectModule.get_or_none(id=module_id, project_id=project_id)
         if not module:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="项目模块不存在"
-            )
+            raise HTTPException(status_code=404, detail="业务线不存在")
 
-        # 检查模块名称是否重复（排除当前模块）
         if module_data.name and module_data.name != module.name:
-            existing_module = await ProjectModule.get_or_none(
-                project_id=project_id,
-                name=module_data.name
+            existing = await ProjectModule.get_or_none(
+                project_id=project_id, name=module_data.name, parent_id=module.parent_id
             )
-            if existing_module:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="该项目中已存在同名模块"
-                )
+            if existing:
+                raise HTTPException(status_code=400, detail="同级下已存在同名业务线")
 
-        # 更新模块信息
         if module_data.name is not None:
             module.name = module_data.name
         if module_data.description is not None:
             module.description = module_data.description
-
         await module.save()
 
         return {
-            "id": module.id,
-            "name": module.name,
-            "description": module.description,
-            "project_id": module.project_id,
-            "created_at": module.created_at,
-            "updated_at": module.updated_at
+            "id": module.id, "name": module.name, "description": module.description,
+            "project_id": module.project_id, "parent_id": module.parent_id,
+            "created_at": module.created_at, "updated_at": module.updated_at
         }
-
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="更新项目模块失败，请稍后重试"
-        )
+        logger.exception("更新业务线失败: %s", e)
+        raise HTTPException(status_code=500, detail="更新业务线失败")
 
 
-@router.delete("/{project_id}/modules/{module_id}", summary="删除项目模块")
+@router.delete("/{project_id}/modules/{module_id}", summary="删除业务线/子模块")
 async def delete_project_module(
         project_id: int,
         module_id: int,
-        project_and_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+        project_and_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
 ):
-    """
-    删除项目模块
-    
-    权限要求：项目成员或负责人
-    """
+    """删除业务线（连带子模块和成员绑定）（仅管理员/项目负责人）"""
     try:
         project, current_user = project_and_user
-
-        # 检查模块是否存在
         module = await ProjectModule.get_or_none(id=module_id, project_id=project_id)
         if not module:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="项目模块不存在"
-            )
-        # 删除模块
+            raise HTTPException(status_code=404, detail="业务线不存在")
+
+        # 如果是一级业务线，删除所有子模块和成员
+        if module.parent_id is None:
+            await ProjectModule.filter(parent_id=module_id).delete()
+            await BusinessLineMember.filter(module_id=module_id).delete()
+
         await module.delete()
-
-        return {
-            "message": "删除项目模块成功"
-        }
-
+        return {"message": "删除成功"}
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="删除项目模块失败，请稍后重试"
+        logger.exception("删除业务线失败: %s", e)
+        raise HTTPException(status_code=500, detail="删除业务线失败")
+
+
+# ==================== 业务线成员管理 ====================
+
+@router.post("/{project_id}/modules/{module_id}/members", summary="添加业务线成员")
+async def add_business_line_member(
+        project_id: int,
+        module_id: int,
+        data: BusinessLineMemberAddRequest,
+        project_and_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
+):
+    """给一级业务线添加成员（仅管理员/项目负责人）"""
+    try:
+        project, current_user = project_and_user
+        module = await ProjectModule.get_or_none(id=module_id, project_id=project_id)
+        if not module:
+            raise HTTPException(status_code=404, detail="业务线不存在")
+        if module.parent_id is not None:
+            raise HTTPException(status_code=400, detail="只能在一级业务线下添加成员")
+
+        # 校验用户存在
+        user = await User.get_or_none(id=data.user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        # 去重
+        existing = await BusinessLineMember.get_or_none(module_id=module_id, user_id=data.user_id)
+        if existing:
+            raise HTTPException(status_code=400, detail="该用户已在此业务线中")
+
+        blm = await BusinessLineMember.create(
+            module_id=module_id, user_id=data.user_id, role=data.role
         )
+        return {
+            "id": blm.id, "module_id": blm.module_id, "user_id": blm.user_id,
+            "role": blm.role, "username": user.username, "real_name": user.real_name
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("添加业务线成员失败: %s", e)
+        raise HTTPException(status_code=500, detail="添加业务线成员失败")
+
+
+@router.put("/{project_id}/modules/{module_id}/members/{member_id}", summary="更新业务线成员角色")
+async def update_business_line_member(
+        project_id: int,
+        module_id: int,
+        member_id: int,
+        data: BusinessLineMemberUpdateRequest,
+        project_and_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
+):
+    """更新业务线成员角色（仅管理员/项目负责人）"""
+    try:
+        project, current_user = project_and_user
+        blm = await BusinessLineMember.get_or_none(id=member_id, module_id=module_id)
+        if not blm:
+            raise HTTPException(status_code=404, detail="成员记录不存在")
+        blm.role = data.role
+        await blm.save()
+        return {"message": "角色更新成功", "id": blm.id, "role": blm.role}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("更新成员角色失败: %s", e)
+        raise HTTPException(status_code=500, detail="更新成员角色失败")
+
+
+@router.delete("/{project_id}/modules/{module_id}/members/{member_id}", summary="移除业务线成员")
+async def remove_business_line_member(
+        project_id: int,
+        module_id: int,
+        member_id: int,
+        project_and_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
+):
+    """移除业务线成员（仅管理员/项目负责人）"""
+    try:
+        project, current_user = project_and_user
+        blm = await BusinessLineMember.get_or_none(id=member_id, module_id=module_id)
+        if not blm:
+            raise HTTPException(status_code=404, detail="成员记录不存在")
+        await blm.delete()
+        return {"message": "移除成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("移除成员失败: %s", e)
+        raise HTTPException(status_code=500, detail="移除成员失败")
+
+
+@router.get("/{project_id}/my-business-lines", summary="获取当前用户所属业务线")
+async def get_my_business_lines(
+        project_id: int,
+        current_user: User = Depends(get_current_user)
+):
+    """获取当前登录用户在该项目下所属的所有业务线"""
+    try:
+        blm_list = await BusinessLineMember.filter(user_id=current_user.id)
+        module_ids = [b.module_id for b in blm_list]
+        if not module_ids:
+            return {"business_lines": [], "is_admin": current_user.is_superuser}
+
+        modules = await ProjectModule.filter(id__in=module_ids, project_id=project_id)
+        module_map = {m.id: m for m in modules}
+
+        result = []
+        for b in blm_list:
+            m = module_map.get(b.module_id)
+            if m:
+                result.append(UserBusinessLineInfo(
+                    module_id=m.id, module_name=m.name, role=b.role
+                ))
+
+        return {"business_lines": result, "is_admin": current_user.is_superuser}
+    except Exception as e:
+        logger.exception("获取用户业务线失败: %s", e)
+        raise HTTPException(status_code=500, detail="获取用户业务线信息失败")

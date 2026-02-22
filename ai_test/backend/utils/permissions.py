@@ -4,7 +4,7 @@
 """
 from fastapi import HTTPException, Depends, status
 from service.user.models import User
-from service.project.models import Project, ProjectMember
+from service.project.models import Project, ProjectMember, BusinessLineMember
 from utils.auth import get_current_user
 
 
@@ -202,3 +202,63 @@ async def verify_test_environment_permission(
         )
 
     return environment, current_user
+
+
+async def verify_schedule_access(
+    project_id: int,
+    current_user: User = Depends(get_current_user)
+) -> tuple[Project, User]:
+    """
+    排期模块权限校验：管理员 + 项目负责人 + 项目成员 + 业务线成员
+
+    适用场景：
+    - 排期管理页面访问（查看迭代、排期条目列表）
+    - 创建/更新排期条目
+    - 提交日报等排期相关操作
+
+    业务线成员（BusinessLineMember）也被视为有效项目成员。
+
+    Returns:
+        tuple[Project, User]: 项目对象和用户对象
+    """
+    project = await Project.get_or_none(id=project_id)
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="项目不存在"
+        )
+
+    # 管理员直接通过
+    if current_user.is_superuser:
+        return project, current_user
+
+    # 项目负责人直接通过
+    if project.owner_id == current_user.id:
+        return project, current_user
+
+    # 检查是否为项目成员
+    is_member = await ProjectMember.exists(
+        project_id=project_id,
+        user_id=current_user.id,
+        status=1
+    )
+    if is_member:
+        return project, current_user
+
+    # 检查是否为该项目下任意业务线的成员
+    from service.project.models import ProjectModule
+    project_module_ids = await ProjectModule.filter(
+        project_id=project_id
+    ).values_list('id', flat=True)
+    if project_module_ids:
+        is_biz_member = await BusinessLineMember.exists(
+            module_id__in=project_module_ids,
+            user_id=current_user.id
+        )
+        if is_biz_member:
+            return project, current_user
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="权限不足，只有项目成员和业务线成员可以访问"
+    )

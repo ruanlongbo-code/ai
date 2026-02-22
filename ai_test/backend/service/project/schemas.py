@@ -113,29 +113,45 @@ class ProjectDetailResponse(BaseModel):
 
 
 class ProjectModuleCreateRequest(BaseModel):
-    """项目模块创建请求模型"""
-    name: str = Field(..., min_length=1, max_length=100, description="模块名称")
-    description: Optional[str] = Field(None, description="模块描述")
+    """项目模块/业务线创建请求模型"""
+    name: str = Field(..., min_length=1, max_length=100, description="名称")
+    description: Optional[str] = Field(None, description="描述")
+    parent_id: Optional[int] = Field(None, description="父级ID，null=一级业务线")
 
     class Config:
         from_attributes = True
 
 
 class ProjectModuleUpdateRequest(BaseModel):
-    """项目模块更新请求模型"""
-    name: str = Field(..., min_length=1, max_length=100, description="模块名称")
-    description: Optional[str] = Field(None, description="模块描述")
+    """项目模块/业务线更新请求模型"""
+    name: str = Field(..., min_length=1, max_length=100, description="名称")
+    description: Optional[str] = Field(None, description="描述")
+
+    class Config:
+        from_attributes = True
+
+
+class BusinessLineMemberInfo(BaseModel):
+    """业务线成员信息"""
+    id: int = Field(..., description="记录ID")
+    user_id: int = Field(..., description="用户ID")
+    username: str = Field(..., description="用户名")
+    real_name: Optional[str] = Field(None, description="真实姓名")
+    role: str = Field(..., description="角色（admin/lead/member）")
 
     class Config:
         from_attributes = True
 
 
 class ProjectModuleResponse(BaseModel):
-    """项目模块响应模型"""
+    """项目模块/业务线响应模型"""
     id: int = Field(..., description="模块ID")
-    name: str = Field(..., description="模块名称")
-    description: Optional[str] = Field(None, description="模块描述")
+    name: str = Field(..., description="名称")
+    description: Optional[str] = Field(None, description="描述")
     project_id: int = Field(..., description="所属项目ID")
+    parent_id: Optional[int] = Field(None, description="父级ID")
+    children: List['ProjectModuleResponse'] = Field(default_factory=list, description="子模块列表")
+    members: List[BusinessLineMemberInfo] = Field(default_factory=list, description="成员列表")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
 
@@ -144,11 +160,29 @@ class ProjectModuleResponse(BaseModel):
 
 
 class ProjectModuleListResponse(BaseModel):
-    """项目模块列表响应模型"""
-    datas: List[ProjectModuleResponse] = Field(..., description="模块列表")
+    """项目模块/业务线列表响应模型（树结构）"""
+    datas: List[ProjectModuleResponse] = Field(..., description="业务线树形列表")
 
     class Config:
         from_attributes = True
+
+
+class BusinessLineMemberAddRequest(BaseModel):
+    """添加业务线成员请求"""
+    user_id: int = Field(..., description="用户ID")
+    role: str = Field(default='member', description="角色（lead=组长, member=测试人员）")
+
+
+class BusinessLineMemberUpdateRequest(BaseModel):
+    """更新业务线成员角色"""
+    role: str = Field(..., description="角色（lead=组长, member=测试人员）")
+
+
+class UserBusinessLineInfo(BaseModel):
+    """用户所属业务线信息"""
+    module_id: int = Field(..., description="业务线ID")
+    module_name: str = Field(..., description="业务线名称")
+    role: str = Field(..., description="角色")
 
 
 # ================== 仪表盘统计相关模型 ==================
@@ -208,7 +242,7 @@ class DashboardTaskSummary(BaseModel):
 class DashboardStatsResponse(BaseModel):
     """仪表盘统计响应模型（按项目）"""
     project_id: int = Field(..., description="项目ID")
-    projects: int = Field(1, description="项目总数（当前视图为单项目时为1）")
+    modules: int = Field(0, description="子模块（业务线）总数")
     api_interfaces: int = Field(..., description="接口数量")
     api_cases: int = Field(..., description="API可执行用例数量")
     functional_cases: int = Field(..., description="功能用例数量")

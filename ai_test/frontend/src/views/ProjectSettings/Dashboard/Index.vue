@@ -5,48 +5,98 @@
       <p>统计项目的概览信息</p>
     </div>
 
-    <!-- 快捷操作（上移到统计卡片上方） -->
+    <!-- 快捷操作（可配置） -->
     <el-card class="quick-actions-card">
       <template #header>
         <div class="section-header">
           <span>快捷入口</span>
           <span class="subtitle">常用功能快速到达</span>
+          <el-button class="config-btn" text size="small" @click="openShortcutConfig">
+            <el-icon><Setting /></el-icon>
+            配置
+          </el-button>
         </div>
       </template>
       <div class="quick-actions">
-        <el-button type="primary" @click="goTo('ApiTestManagement')">
-          <el-icon><Setting /></el-icon>
-          接口管理
+        <el-button
+          v-for="item in activeShortcuts"
+          :key="item.name"
+          :type="item.name === activeShortcuts[0]?.name ? 'primary' : ''"
+          @click="goTo(item.name)"
+        >
+          <el-icon><component :is="item.icon" /></el-icon>
+          {{ item.label }}
         </el-button>
-        <el-button @click="goTo('ApiTestSuite')">
-          <el-icon><Collection /></el-icon>
-          测试套件
-        </el-button>
-        <el-button @click="goTo('ApiTestPlan')">
-          <el-icon><Calendar /></el-icon>
-          测试计划
-        </el-button>
-        <el-button @click="goTo('ProjectEnvironment')">
-          <el-icon><Platform /></el-icon>
-          测试环境
-        </el-button>
-        <el-button @click="goTo('ProjectMember')">
-          <el-icon><User /></el-icon>
-          成员管理
+        <el-button v-if="!activeShortcuts.length" type="info" plain @click="openShortcutConfig">
+          <el-icon><Plus /></el-icon>
+          添加快捷入口
         </el-button>
       </div>
     </el-card>
+
+    <!-- 快捷入口配置弹窗 -->
+    <el-dialog v-model="showShortcutConfig" title="配置快捷入口" width="700px" :close-on-click-modal="false">
+      <div class="shortcut-config-layout">
+        <!-- 左栏：可选列表 -->
+        <div class="shortcut-panel shortcut-available">
+          <div class="panel-title">可选入口</div>
+          <div class="panel-body">
+            <div
+              v-for="opt in availableOptions"
+              :key="opt.name"
+              class="shortcut-pick-item"
+              @click="addShortcut(opt)"
+            >
+              <el-icon style="margin-right: 6px;"><component :is="opt.icon" /></el-icon>
+              <span>{{ opt.label }}</span>
+              <el-tag size="small" type="info" effect="plain" style="margin-left: auto;">{{ opt.group }}</el-tag>
+              <el-icon class="add-icon"><Plus /></el-icon>
+            </div>
+            <div v-if="!availableOptions.length" class="panel-empty">已全部添加</div>
+          </div>
+        </div>
+
+        <!-- 右栏：已选列表（可拖拽排序） -->
+        <div class="shortcut-panel shortcut-selected">
+          <div class="panel-title">已选入口 <span class="count-hint">（{{ configSelectedItems.length }}/8，拖拽排序）</span></div>
+          <draggable
+            v-model="configSelectedItems"
+            item-key="name"
+            handle=".drag-handle"
+            animation="200"
+            class="panel-body"
+          >
+            <template #item="{ element, index }">
+              <div class="shortcut-selected-item">
+                <el-icon class="drag-handle"><Rank /></el-icon>
+                <el-icon style="margin-right: 6px;"><component :is="element.icon" /></el-icon>
+                <span>{{ element.label }}</span>
+                <el-button class="remove-btn" text size="small" @click="removeShortcut(index)">
+                  <el-icon><Close /></el-icon>
+                </el-button>
+              </div>
+            </template>
+          </draggable>
+          <div v-if="!configSelectedItems.length" class="panel-empty" style="padding: 24px;">点击左侧入口添加</div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="resetShortcuts">恢复默认</el-button>
+        <el-button @click="showShortcutConfig = false">取消</el-button>
+        <el-button type="primary" @click="saveShortcuts">保存</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 统计卡片（第一行） -->
     <el-row :gutter="20" class="stats-row">
       <el-col :span="6">
         <div class="stat-card">
           <div class="stat-icon">
-            <el-icon><Folder /></el-icon>
+            <el-icon><Grid /></el-icon>
           </div>
           <div class="stat-content">
-            <h3>{{ stats.projects }}</h3>
-            <p>项目总数</p>
+            <h3>{{ stats.modules }}</h3>
+            <p>子模块总数</p>
           </div>
         </div>
       </el-col>
@@ -252,7 +302,8 @@ import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart, BarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
-import { Clock, Loading } from '@element-plus/icons-vue'
+import { Clock, Loading, Plus, Setting, Collection, Calendar, User, Document, List, Upload, Files, VideoPlay, Connection, Notebook, Edit, TrendCharts, ChatDotRound, Grid, Platform, Close, Rank } from '@element-plus/icons-vue'
+import draggable from 'vuedraggable'
 
 // 注册 ECharts 组件
 use([CanvasRenderer, LineChart, BarChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
@@ -278,8 +329,108 @@ const getProjectId = () => {
 
 const projectId = ref(getProjectId())
 
+// ==================== 快捷入口配置 ====================
+const STORAGE_KEY = 'dashboard_shortcuts'
+
+const allShortcutOptions = [
+  // 排期管理
+  { name: 'ScheduleIteration', label: '排期管理', icon: 'Calendar', group: '排期管理' },
+  { name: 'ScheduleDailyReport', label: '测试日报', icon: 'Edit', group: '排期管理' },
+  { name: 'ScheduleDashboard', label: '进度看板', icon: 'TrendCharts', group: '排期管理' },
+  { name: 'ScheduleFeishu', label: '飞书群集成', icon: 'ChatDotRound', group: '排期管理' },
+  // 功能测试
+  { name: 'FunctionTestRequirement', label: '需求管理', icon: 'Document', group: '功能测试' },
+  { name: 'FunctionTestRequirementCreate', label: '新建需求', icon: 'Plus', group: '功能测试' },
+  { name: 'FunctionTestCase', label: '功能用例', icon: 'List', group: '功能测试' },
+  // 接口测试
+  { name: 'ApiTestImport', label: '接口导入', icon: 'Upload', group: '接口测试' },
+  { name: 'ApiTestManagement', label: '接口管理', icon: 'Setting', group: '接口测试' },
+  { name: 'ApiTestBaseCase', label: 'API测试点管理', icon: 'Files', group: '接口测试' },
+  { name: 'ApiTestAutoCase', label: '自动化用例', icon: 'VideoPlay', group: '接口测试' },
+  { name: 'ApiTestSuite', label: '测试套件', icon: 'Collection', group: '接口测试' },
+  { name: 'ApiTestPlan', label: '测试计划', icon: 'Calendar', group: '接口测试' },
+  // UI测试
+  { name: 'UiTestPage', label: '页面管理', icon: 'Notebook', group: 'UI测试' },
+  { name: 'UiTestCase', label: '用例管理', icon: 'List', group: 'UI测试' },
+  // 项目管理
+  { name: 'ProjectModule', label: '业务线管理', icon: 'Grid', group: '项目管理' },
+  { name: 'ProjectMember', label: '成员管理', icon: 'User', group: '项目管理' },
+  { name: 'ProjectEnvironment', label: '测试环境', icon: 'Platform', group: '项目管理' },
+]
+
+const defaultShortcutNames = ['ScheduleIteration', 'FunctionTestRequirement', 'ApiTestManagement', 'ApiTestSuite', 'ApiTestPlan']
+
+const showShortcutConfig = ref(false)
+const selectedShortcutNames = ref([...defaultShortcutNames])
+// 配置弹窗内操作的临时列表（保存时才写入 selectedShortcutNames）
+const configSelectedItems = ref([])
+
+const loadShortcuts = () => {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        selectedShortcutNames.value = parsed
+        return
+      }
+    }
+  } catch {}
+  selectedShortcutNames.value = [...defaultShortcutNames]
+}
+
+const activeShortcuts = computed(() => {
+  return selectedShortcutNames.value
+    .map(name => allShortcutOptions.find(o => o.name === name))
+    .filter(Boolean)
+})
+
+// 可选列表 = 全部 - 已选
+const availableOptions = computed(() => {
+  const selectedNames = new Set(configSelectedItems.value.map(i => i.name))
+  return allShortcutOptions.filter(o => !selectedNames.has(o.name))
+})
+
+const addShortcut = (opt) => {
+  if (configSelectedItems.value.length >= 8) {
+    ElMessage.warning('最多添加 8 个快捷入口')
+    return
+  }
+  configSelectedItems.value.push({ ...opt })
+}
+
+const removeShortcut = (index) => {
+  configSelectedItems.value.splice(index, 1)
+}
+
+// 打开弹窗时，用当前已保存的数据初始化临时列表
+const openShortcutConfig = () => {
+  configSelectedItems.value = selectedShortcutNames.value
+    .map(name => allShortcutOptions.find(o => o.name === name))
+    .filter(Boolean)
+    .map(o => ({ ...o }))
+  showShortcutConfig.value = true
+}
+
+const saveShortcuts = () => {
+  selectedShortcutNames.value = configSelectedItems.value.map(i => i.name)
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedShortcutNames.value))
+  showShortcutConfig.value = false
+  ElMessage.success('快捷入口已保存')
+}
+
+const resetShortcuts = () => {
+  configSelectedItems.value = defaultShortcutNames
+    .map(name => allShortcutOptions.find(o => o.name === name))
+    .filter(Boolean)
+    .map(o => ({ ...o }))
+}
+
+// 初始化加载
+loadShortcuts()
+
 const stats = ref({
-  projects: 0,
+  modules: 0,
   apiInterfaces: 0,
   apiCases: 0,
   requirements: 0,
@@ -370,7 +521,7 @@ const fetchDashboard = async () => {
     const data = resp.data || {}
 
     // 映射统计卡片（兼容缺省字段）
-    stats.value.projects = data.projects ?? 1
+    stats.value.modules = data.modules ?? 0
     stats.value.apiInterfaces = data.api_interfaces ?? 0
     stats.value.apiCases = data.api_cases ?? 0
     stats.value.requirements = data.requirements ?? 0
@@ -608,6 +759,122 @@ onMounted(() => {
 .section-header .subtitle {
   font-size: 12px;
   color: #909399;
+}
+
+.section-header .config-btn {
+  margin-left: auto;
+  color: #909399;
+}
+
+.section-header .config-btn:hover {
+  color: #7c3aed;
+}
+
+.shortcut-config-layout {
+  display: flex;
+  gap: 16px;
+  min-height: 380px;
+}
+
+.shortcut-panel {
+  flex: 1;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-title {
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #1f2937;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fafafa;
+}
+
+.panel-title .count-hint {
+  font-weight: 400;
+  font-size: 12px;
+  color: #909399;
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.panel-empty {
+  text-align: center;
+  color: #c0c4cc;
+  font-size: 13px;
+  padding: 32px 0;
+}
+
+/* 左栏可选项 */
+.shortcut-pick-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  color: #374151;
+}
+
+.shortcut-pick-item:hover {
+  background: #f5f3ff;
+}
+
+.shortcut-pick-item .add-icon {
+  margin-left: 8px;
+  color: #c0c4cc;
+  transition: color 0.2s;
+}
+
+.shortcut-pick-item:hover .add-icon {
+  color: #7c3aed;
+}
+
+/* 右栏已选项 */
+.shortcut-selected-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: #fff;
+  font-size: 14px;
+  color: #374151;
+  transition: box-shadow 0.2s;
+}
+
+.shortcut-selected-item:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+.drag-handle {
+  cursor: grab;
+  color: #c0c4cc;
+  margin-right: 8px;
+  font-size: 16px;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.remove-btn {
+  margin-left: auto;
+  color: #c0c4cc !important;
+}
+
+.remove-btn:hover {
+  color: #f56c6c !important;
 }
 
 .summary-card {

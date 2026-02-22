@@ -1,409 +1,415 @@
 <template>
-  <div class="module-management">
+  <div class="biz-management">
     <div class="page-header">
-      <h1>模块管理</h1>
-      <p>管理项目中的功能模块</p>
+      <h1>业务线管理</h1>
+      <p>管理项目业务线及其子模块，为测试人员分配对应业务线</p>
     </div>
 
     <!-- 操作栏 -->
     <div class="action-bar">
-      <el-button type="primary" @click="handleCreate" :loading="loading">
-        <el-icon><Plus /></el-icon>
-        新建模块
+      <el-button type="primary" @click="handleCreateTopLevel">
+        <el-icon><Plus /></el-icon> 新建业务线
       </el-button>
-      <el-button @click="refreshModules" :loading="loading">
-        <el-icon><Refresh /></el-icon>
-        刷新
+      <el-button @click="loadData">
+        <el-icon><Refresh /></el-icon> 刷新
       </el-button>
     </div>
 
-    <!-- 模块列表 -->
-    <div class="module-card">
-      <el-table 
-        :data="modules" 
-        v-loading="loading"
-        empty-text="暂无模块数据"
-        stripe
-        style="width: 100%"
-      >
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="模块名称" min-width="150" />
-        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="created_at" label="创建时间" width="180">
-          <template #default="{ row }">
-            {{ formatDateTime(row.created_at) }}
+    <!-- 业务线树形列表 -->
+    <div class="biz-content" v-loading="loading">
+      <el-collapse v-model="expandedPanels">
+        <el-collapse-item v-for="biz in bizTree" :key="biz.id" :name="biz.id">
+          <template #title>
+            <div class="biz-header">
+              <el-icon><OfficeBuilding /></el-icon>
+              <span class="biz-name">{{ biz.name }}</span>
+              <el-tag size="small" type="info" style="margin-left: 8px">{{ biz.children?.length || 0 }} 子模块</el-tag>
+              <el-tag size="small" style="margin-left: 4px">{{ biz.members?.length || 0 }} 人</el-tag>
+            </div>
           </template>
-        </el-table-column>
-        <el-table-column prop="updated_at" label="更新时间" width="180">
-          <template #default="{ row }">
-            {{ formatDateTime(row.updated_at) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
-          <template #default="{ row }">
-            <el-button type="primary" size="small" @click="handleEdit(row)">
-              <el-icon><Edit /></el-icon>
-              编辑
-            </el-button>
-            <el-button type="danger" size="small" @click="handleDelete(row)">
-              <el-icon><Delete /></el-icon>
-              删除
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          <div class="biz-detail">
+            <el-descriptions :column="2" border size="small" style="margin-bottom: 12px" v-if="biz.description">
+              <el-descriptions-item label="描述" :span="2">{{ biz.description || '-' }}</el-descriptions-item>
+            </el-descriptions>
+
+            <!-- 子模块 -->
+            <div class="section-title">
+              <span>📂 子模块</span>
+              <el-button type="primary" size="small" link @click.stop="handleCreateChild(biz)">
+                <el-icon><Plus /></el-icon> 添加子模块
+              </el-button>
+            </div>
+            <el-table :data="biz.children || []" size="small" empty-text="暂无子模块" border style="margin-bottom: 16px">
+              <el-table-column prop="name" label="名称" min-width="150" />
+              <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+              <el-table-column label="操作" width="140">
+                <template #default="{ row }">
+                  <el-button type="primary" size="small" link @click="handleEdit(row)">编辑</el-button>
+                  <el-button type="danger" size="small" link @click="handleDelete(row)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <!-- 成员管理 -->
+            <div class="section-title">
+              <span>👥 成员分配</span>
+              <el-button type="primary" size="small" link @click.stop="handleAddMember(biz)">
+                <el-icon><Plus /></el-icon> 添加成员
+              </el-button>
+            </div>
+            <el-table :data="biz.members || []" size="small" empty-text="暂无成员" border>
+              <el-table-column prop="real_name" label="姓名" min-width="100">
+                <template #default="{ row }">{{ row.real_name || row.username }}</template>
+              </el-table-column>
+              <el-table-column prop="role" label="角色" width="120">
+                <template #default="{ row }">
+                  <el-tag :type="roleTagType(row.role)" size="small">{{ roleLabel(row.role) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="180">
+                <template #default="{ row }">
+                  <el-select v-model="row.role" size="small" style="width: 90px" @change="handleRoleChange(biz, row)">
+                    <el-option label="组长" value="lead" />
+                    <el-option label="测试人员" value="member" />
+                  </el-select>
+                  <el-button type="danger" size="small" link @click="handleRemoveMember(biz, row)" style="margin-left: 4px">移除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <!-- 业务线自身操作 -->
+            <div style="margin-top: 12px; text-align: right;">
+              <el-button size="small" @click="handleEdit(biz)">编辑业务线</el-button>
+              <el-button type="danger" size="small" @click="handleDelete(biz)">删除业务线</el-button>
+            </div>
+          </div>
+        </el-collapse-item>
+      </el-collapse>
+
+      <el-empty v-if="!loading && bizTree.length === 0" description="暂无业务线，请点击「新建业务线」按钮创建" />
     </div>
 
-    <!-- 新增/编辑弹窗 -->
-    <el-dialog 
-      :title="dialogTitle" 
-      v-model="dialogVisible" 
-      width="500px"
-      :close-on-click-modal="false"
-    >
-      <el-form 
-        ref="formRef" 
-        :model="formData" 
-        :rules="formRules" 
-        label-width="80px"
-      >
-        <el-form-item label="模块名称" prop="name">
-          <el-input 
-            v-model="formData.name" 
-            placeholder="请输入模块名称"
-            maxlength="100"
-            show-word-limit
-          />
+    <!-- 新建/编辑弹窗 -->
+    <el-dialog :title="dialogTitle" v-model="showDialog" width="500px" :close-on-click-modal="false">
+      <el-form ref="formRef" :model="formData" :rules="formRules" label-width="80px">
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="formData.name" placeholder="请输入名称" maxlength="100" show-word-limit />
         </el-form-item>
-        <el-form-item label="模块描述" prop="description">
-          <el-input 
-            v-model="formData.description" 
-            type="textarea" 
-            :rows="4"
-            placeholder="请输入模块描述"
-            maxlength="500"
-            show-word-limit
-          />
+        <el-form-item label="描述">
+          <el-input v-model="formData.description" type="textarea" :rows="3" placeholder="请输入描述" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button  @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit" :loading="submitLoading">
-          确定
-        </el-button>
+        <el-button @click="showDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="saving">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 添加成员弹窗 -->
+    <el-dialog title="添加业务线成员" v-model="showMemberDialog" width="450px" :close-on-click-modal="false">
+      <el-form label-width="80px">
+        <el-form-item label="选择成员">
+          <el-select v-model="memberForm.user_id" filterable placeholder="搜索并选择成员" style="width: 100%">
+            <el-option v-for="u in availableUsers" :key="u.id" :label="u.real_name || u.username" :value="u.id">
+              <span>{{ u.real_name || u.username }}</span>
+              <span style="color: #999; margin-left: 8px; font-size: 12px">{{ u.username }}</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="角色">
+          <el-radio-group v-model="memberForm.role">
+            <el-radio value="lead">组长</el-radio>
+            <el-radio value="member">测试人员</el-radio>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showMemberDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmitMember" :loading="saving">确定</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, reactive, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRoute } from 'vue-router'
 import { useProjectStore } from '@/stores'
-import { getProjectModules, createProjectModule, updateProjectModule, deleteProjectModule } from '@/api/module'
+import {
+  getProjectModules, createProjectModule, updateProjectModule, deleteProjectModule,
+  addBusinessLineMember, updateBusinessLineMember, removeBusinessLineMember
+} from '@/api/module'
+import request from '@/utils/request'
 
-const route = useRoute()
 const projectStore = useProjectStore()
+const projectId = computed(() => projectStore.currentProject?.id)
 
-// 从Pinia获取当前选中的项目ID
-const projectId = computed(() => {
-  return projectStore.currentProject?.id || route.params.projectId || null
-})
-
-// 响应式数据
 const loading = ref(false)
-const submitLoading = ref(false)
-const modules = ref([])
-const dialogVisible = ref(false)
-const dialogTitle = ref('')
-const isEdit = ref(false)
-const currentModule = ref(null)
+const saving = ref(false)
+const bizTree = ref([])
+const expandedPanels = ref([])
 
-// 表单数据
+// 弹窗
+const showDialog = ref(false)
+const dialogTitle = ref('')
+const editingModule = ref(null)
+const parentId = ref(null)
 const formRef = ref()
-const formData = reactive({
-  name: '',
-  description: ''
+const formData = ref({ name: '', description: '' })
+const formRules = {
+  name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
+}
+
+// 成员弹窗
+const showMemberDialog = ref(false)
+const memberForm = ref({ user_id: null, role: 'member' })
+const currentBizForMember = ref(null)
+const allMembers = ref([])
+
+const availableUsers = computed(() => {
+  if (!currentBizForMember.value) return allMembers.value
+  const existingIds = new Set((currentBizForMember.value.members || []).map(m => m.user_id))
+  return allMembers.value.filter(u => !existingIds.has(u.id))
 })
 
-// 表单验证规则
-const formRules = {
-  name: [
-    { required: true, message: '请输入模块名称', trigger: 'blur' },
-    { min: 1, max: 100, message: '模块名称长度在 1 到 100 个字符', trigger: 'blur' }
-  ]
+function roleLabel(r) {
+  const map = { admin: '管理员', lead: '组长', member: '测试人员' }
+  return map[r] || r
+}
+function roleTagType(r) {
+  const map = { admin: 'danger', lead: 'warning', member: '' }
+  return map[r] || ''
 }
 
-// 格式化日期时间
-const formatDateTime = (dateTime) => {
-  if (!dateTime) return '-'
-  return new Date(dateTime).toLocaleString('zh-CN')
-}
-
-// 获取模块列表
-const fetchModules = async () => {
-  if (!projectId.value) {
-    ElMessage.error('未找到项目信息，请重新选择项目')
-    return
-  }
-  
+async function loadData() {
+  if (!projectId.value) return
+  loading.value = true
   try {
-    loading.value = true
-    const response = await getProjectModules(projectId.value)
-    modules.value = response.data.datas || []
-  } catch (error) {
-    console.error('获取模块列表失败:', error)
-    ElMessage.error(error.response?.data?.detail || '获取模块列表失败')
+    const res = await getProjectModules(projectId.value)
+    const data = res.data || res
+    bizTree.value = data.datas || data || []
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('加载业务线列表失败')
   } finally {
     loading.value = false
   }
 }
 
-// 刷新模块列表
-const refreshModules = async () => {
-  await fetchModules()
-  ElMessage.success('刷新成功')
-}
-
-// 重置表单
-const resetForm = () => {
-  formData.name = ''
-  formData.description = ''
-  if (formRef.value) {
-    formRef.value.resetFields()
+async function loadMembers() {
+  if (!projectId.value) return
+  try {
+    // 管理员页面：加载所有注册用户供分配
+    const res = await request({ url: '/user/list', method: 'get', params: { page: 1, page_size: 200 } })
+    const data = res.data || res
+    allMembers.value = (data.users || []).map(u => ({
+      id: u.id,
+      username: u.username,
+      real_name: u.real_name
+    }))
+  } catch (e) {
+    console.error('加载用户列表失败', e)
   }
 }
 
-// 新建模块
-const handleCreate = () => {
-  isEdit.value = false
-  dialogTitle.value = '新建模块'
-  resetForm()
-  dialogVisible.value = true
+function handleCreateTopLevel() {
+  editingModule.value = null
+  parentId.value = null
+  dialogTitle.value = '新建业务线'
+  formData.value = { name: '', description: '' }
+  showDialog.value = true
 }
 
-// 编辑模块
-const handleEdit = (row) => {
-  isEdit.value = true
-  dialogTitle.value = '编辑模块'
-  currentModule.value = row
-  formData.name = row.name
-  formData.description = row.description || ''
-  dialogVisible.value = true
+function handleCreateChild(parent) {
+  editingModule.value = null
+  parentId.value = parent.id
+  dialogTitle.value = `新建子模块 — ${parent.name}`
+  formData.value = { name: '', description: '' }
+  showDialog.value = true
 }
 
-// 提交表单
-const handleSubmit = async () => {
-  if (!projectId.value) {
-    ElMessage.error('未找到项目信息，请重新选择项目')
-    return
-  }
-  
+function handleEdit(mod) {
+  editingModule.value = mod
+  parentId.value = mod.parent_id || null
+  dialogTitle.value = mod.parent_id ? '编辑子模块' : '编辑业务线'
+  formData.value = { name: mod.name, description: mod.description || '' }
+  showDialog.value = true
+}
+
+async function handleSubmit() {
   if (!formRef.value) return
-  
   try {
     await formRef.value.validate()
-    submitLoading.value = true
-    
-    if (isEdit.value) {
-      // 更新模块
-      await updateProjectModule(projectId.value, currentModule.value.id, {
-        name: formData.name,
-        description: formData.description
-      })
-      ElMessage.success('更新模块成功')
+    saving.value = true
+    if (editingModule.value) {
+      await updateProjectModule(projectId.value, editingModule.value.id, formData.value)
+      ElMessage.success('更新成功')
     } else {
-      // 创建模块
       await createProjectModule(projectId.value, {
-        name: formData.name,
-        description: formData.description
+        ...formData.value,
+        parent_id: parentId.value
       })
-      ElMessage.success('创建模块成功')
+      ElMessage.success('创建成功')
     }
-    
-    dialogVisible.value = false
-    fetchModules()
-  } catch (error) {
-    console.error('提交失败:', error)
-    ElMessage.error(error.response?.data?.detail || '操作失败')
+    showDialog.value = false
+    await loadData()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '操作失败')
   } finally {
-    submitLoading.value = false
+    saving.value = false
   }
 }
 
-// 删除模块
-const handleDelete = async (row) => {
-  if (!projectId.value) {
-    ElMessage.error('未找到项目信息，请重新选择项目')
-    return
-  }
-  
+async function handleDelete(mod) {
+  const label = mod.parent_id ? '子模块' : '业务线'
   try {
     await ElMessageBox.confirm(
-      `确定要删除模块 "${row.name}" 吗？此操作不可恢复。`,
-      '确认删除',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
+      `确定删除${label}「${mod.name}」吗？${mod.parent_id ? '' : '将同时删除所有子模块和成员绑定。'}`,
+      '确认删除', { type: 'warning' }
     )
-    
-    loading.value = true
-    await deleteProjectModule(projectId.value, row.id)
-    ElMessage.success('删除模块成功')
-    fetchModules()
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('删除失败:', error)
-      ElMessage.error(error.response?.data?.detail || '删除失败')
-    }
-  } finally {
-    loading.value = false
+    await deleteProjectModule(projectId.value, mod.id)
+    ElMessage.success('删除成功')
+    await loadData()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error(e.response?.data?.detail || '删除失败')
   }
 }
 
-// 组件挂载时获取数据
-onMounted(() => {
-  fetchModules()
+function handleAddMember(biz) {
+  currentBizForMember.value = biz
+  memberForm.value = { user_id: null, role: 'member' }
+  showMemberDialog.value = true
+}
+
+async function handleSubmitMember() {
+  if (!memberForm.value.user_id) return ElMessage.warning('请选择成员')
+  saving.value = true
+  try {
+    await addBusinessLineMember(projectId.value, currentBizForMember.value.id, memberForm.value)
+    ElMessage.success('添加成功')
+    showMemberDialog.value = false
+    await loadData()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '添加失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function handleRoleChange(biz, member) {
+  try {
+    await updateBusinessLineMember(projectId.value, biz.id, member.id, { role: member.role })
+    ElMessage.success('角色更新成功')
+  } catch (e) {
+    ElMessage.error('角色更新失败')
+    await loadData()
+  }
+}
+
+async function handleRemoveMember(biz, member) {
+  try {
+    await ElMessageBox.confirm(`确定移除成员「${member.real_name || member.username}」？`, '确认移除', { type: 'warning' })
+    await removeBusinessLineMember(projectId.value, biz.id, member.id)
+    ElMessage.success('移除成功')
+    await loadData()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('移除失败')
+  }
+}
+
+onMounted(async () => {
+  await loadData()
+  await loadMembers()
 })
 </script>
 
 <style scoped>
-.module-management {
+.biz-management {
   padding: 24px;
-  background: #ffffff;
+  background: #fff;
   min-height: 100vh;
 }
+.page-header { margin-bottom: 24px; }
+.page-header h1 { color: #1f2937; margin: 0 0 8px; font-size: 24px; font-weight: bold; }
+.page-header p { color: #6b7280; margin: 0; font-size: 14px; }
 
-.page-header {
-  margin-bottom: 24px;
-}
+.action-bar { margin-bottom: 20px; display: flex; gap: 12px; }
 
-.page-header h1 {
-  color: #1f2937;
-  margin: 0 0 8px 0;
-  font-size: 28px;
-  font-weight: bold;
-}
-
-.page-header p {
-  color: #6b7280;
-  margin: 0;
-  font-size: 14px;
-}
-
-.action-bar {
-  margin-bottom: 20px;
-  display: flex;
-  gap: 12px;
-}
-
-.action-bar .el-button {
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  color: #374151;
-  transition: all 0.3s ease;
-}
-
-.action-bar .el-button:hover {
-  background: #f9fafb;
-  border-color: #9ca3af;
-  transform: translateY(-2px);
-}
-
-.action-bar .el-button--primary {
-  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
-  border-color: #8b5cf6;
-  color: #ffffff;
-}
-
-.action-bar .el-button--primary:hover {
-  background: linear-gradient(135deg, #7c3aed, #6d28d9);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
-}
-
-.module-card {
-  background: #ffffff;
+.biz-content {
+  background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
-  padding: 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 16px;
 }
 
-:deep(.el-table) {
-  background: #ffffff;
-  color: #1f2937;
+.biz-header {
+  display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 500;
+}
+.biz-name { color: #1f2937; }
+
+.biz-detail { padding: 0 16px 8px; }
+
+.section-title {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px; font-size: 14px; font-weight: 500; color: #374151;
 }
 
-:deep(.el-table__header-wrapper) {
-  background: #f8fafc;
+:deep(.el-collapse-item__header) {
+  font-size: 15px; padding: 0 8px; height: 48px; background: #f9fafb;
+  border-radius: 6px; margin-bottom: 4px;
 }
-
-:deep(.el-table th) {
-  background: #f8fafc;
-  color: #374151;
+:deep(.el-collapse-item__wrap) {
   border-bottom: 1px solid #e5e7eb;
 }
 
-:deep(.el-table td) {
-  background: #ffffff;
-  color: #1f2937;
-  border-bottom: 1px solid #f3f4f6;
+/* 修复按钮文案颜色显示问题 */
+:deep(.el-button--primary.is-text) {
+  color: #409eff;
+}
+:deep(.el-button--primary.is-text:hover) {
+  color: #66b1ff;
+  background-color: #ecf5ff;
+}
+:deep(.el-button--danger.is-text) {
+  color: #f56c6c;
+}
+:deep(.el-button--danger.is-text:hover) {
+  color: #f89898;
+  background-color: #fef0f0;
 }
 
-:deep(.el-table__row:hover > td) {
-  background: #f9fafb !important;
+/* 确保表格内按钮文字清晰可见 */
+:deep(.el-table .el-button--primary.is-link) {
+  color: #409eff;
+  font-weight: 500;
+}
+:deep(.el-table .el-button--danger.is-link) {
+  color: #f56c6c;
+  font-weight: 500;
 }
 
-:deep(.el-table__row--striped > td) {
-  background: #f9fafb;
+/* 修复操作栏按钮样式 */
+.biz-detail > div:last-child .el-button {
+  font-weight: 500;
 }
-
-:deep(.el-table__empty-text) {
-  color: #6b7280;
-}
-
-:deep(.el-button--small) {
-  padding: 5px 8px;
-  font-size: 12px;
-}
-
-
-
-
-
- 
-
-.subtitle {
+.biz-detail > div:last-child .el-button--default {
   color: #606266;
-  margin: 0;
-  font-size: 14px;
+  border-color: #dcdfe6;
+}
+.biz-detail > div:last-child .el-button--danger {
+  color: #fff;
+  background-color: #f56c6c;
+  border-color: #f56c6c;
 }
 
-.page-content {
-  background: white;
-  border-radius: 8px;
-  overflow: hidden;
+/* section title 内的按钮确保可见 */
+.section-title :deep(.el-button) {
+  font-weight: 500;
+  color: #409eff;
 }
 
-.content-card {
-  border: none;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.table-container {
-  min-height: 400px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* 角色选择器样式优化 */
+:deep(.el-table .el-select .el-input__inner) {
+  font-size: 13px;
 }
 </style>

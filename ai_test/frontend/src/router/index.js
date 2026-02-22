@@ -28,30 +28,30 @@ const routes = [
         component: () => import('../views/ProjectSettings/Dashboard/Index.vue'),
         meta: { title: '仪表盘', icon: 'DataBoard' }
       },
-      // 项目管理
+      // 项目管理（仅管理员可访问）
       {
         path: 'project/module',
         name: 'ProjectModule',
         component: () => import('../views/ProjectSettings/Module/Index.vue'),
-        meta: { title: '模块管理', icon: 'Grid' }
+        meta: { title: '业务线管理', icon: 'Grid', requiresAdmin: true }
       },
       {
         path: 'project-settings/environment',
         name: 'ProjectEnvironment',
         component: () => import('../views/ProjectSettings/Environment/Index.vue'),
-        meta: { title: '测试环境', icon: 'Platform' }
+        meta: { title: '测试环境', icon: 'Platform', requiresAdmin: true }
       },
       {
         path: 'project-settings/environment/:environmentId/edit',
         name: 'EnvironmentEdit',
         component: () => import('../views/ProjectSettings/Environment/Edit.vue'),
-        meta: { title: '编辑测试环境', icon: 'Edit' }
+        meta: { title: '编辑测试环境', icon: 'Edit', requiresAdmin: true }
       },
       {
         path: 'project/member',
         name: 'ProjectMember',
         component: () => import('../views/ProjectSettings/Member/Index.vue'),
-        meta: { title: '成员管理', icon: 'User' }
+        meta: { title: '成员管理', icon: 'User', requiresAdmin: true }
       },
       // 功能测试
       {
@@ -194,6 +194,31 @@ const routes = [
         component: () => import('../views/UiTest/Case/Index.vue'),
         meta: { title: '用例管理', icon: 'List' }
       },
+      // 测试排期管理
+      {
+        path: 'schedule/iteration',
+        name: 'ScheduleIteration',
+        component: () => import('../views/Schedule/Iteration/Index.vue'),
+        meta: { title: '排期管理', icon: 'Calendar' }
+      },
+      {
+        path: 'schedule/daily-report',
+        name: 'ScheduleDailyReport',
+        component: () => import('../views/Schedule/DailyReport/Index.vue'),
+        meta: { title: '测试日报', icon: 'Edit' }
+      },
+      {
+        path: 'schedule/dashboard',
+        name: 'ScheduleDashboard',
+        component: () => import('../views/Schedule/Dashboard/Index.vue'),
+        meta: { title: '进度看板', icon: 'TrendCharts' }
+      },
+      {
+        path: 'schedule/feishu',
+        name: 'ScheduleFeishu',
+        component: () => import('../views/Schedule/Feishu/Index.vue'),
+        meta: { title: '飞书群集成', icon: 'ChatDotRound' }
+      },
       // 用户管理
       {
         path: 'user-management/users',
@@ -201,7 +226,13 @@ const routes = [
         component: () => import('../views/UserManagement/Users/Index.vue'),
         meta: { title: '用户管理', icon: 'Avatar', requiresAdmin: true }
       },
-     
+      // 未来可期
+      {
+        path: 'coming-soon',
+        name: 'ComingSoon',
+        component: () => import('../views/ComingSoon/Index.vue'),
+        meta: { title: '未来可期', icon: 'MagicStick' }
+      },
       ]
     },
   {

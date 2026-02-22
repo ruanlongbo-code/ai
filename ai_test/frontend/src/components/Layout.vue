@@ -18,28 +18,49 @@
         >
           
 
-          <!-- 项目管理 -->
-          <el-sub-menu index="project-management">
-            <template #title>
-              <el-icon><Management /></el-icon>
-              <span>项目管理</span>
-            </template>
-            <!-- 仪表盘 -->
+          <!-- 仪表盘（所有人可见） -->
           <el-menu-item index="/dashboard">
             <el-icon><DataBoard /></el-icon>
             <template #title>仪表盘</template>
           </el-menu-item>
+
+          <!-- 项目管理（仅管理员可见） -->
+          <el-sub-menu v-if="isAdmin" index="project-management">
+            <template #title>
+              <el-icon><Management /></el-icon>
+              <span>项目管理</span>
+            </template>
             <el-menu-item index="/project/module">
               <el-icon><Grid /></el-icon>
-              <template #title>模块管理</template>
+              <template #title>业务线管理</template>
             </el-menu-item>
-            <el-menu-item index="/project-settings/environment">
-              <el-icon><Platform /></el-icon>
-              <template #title>测试环境</template>
-            </el-menu-item>
-            <el-menu-item v-if="canManageMembers" index="/project/member">
+            <el-menu-item index="/project/member">
               <el-icon><User /></el-icon>
               <template #title>成员管理</template>
+            </el-menu-item>
+          </el-sub-menu>
+
+          <!-- 测试排期管理 -->
+          <el-sub-menu index="schedule">
+            <template #title>
+              <el-icon><Calendar /></el-icon>
+              <span>排期管理</span>
+            </template>
+            <el-menu-item index="/schedule/iteration">
+              <el-icon><List /></el-icon>
+              <template #title>排期管理</template>
+            </el-menu-item>
+            <el-menu-item index="/schedule/dashboard">
+              <el-icon><TrendCharts /></el-icon>
+              <template #title>进度看板</template>
+            </el-menu-item>
+            <el-menu-item index="/schedule/daily-report">
+              <el-icon><Edit /></el-icon>
+              <template #title>测试日报</template>
+            </el-menu-item>
+            <el-menu-item index="/schedule/feishu">
+              <el-icon><ChatDotRound /></el-icon>
+              <template #title>飞书群集成</template>
             </el-menu-item>
           </el-sub-menu>
 
@@ -118,6 +139,12 @@
               <template #title>用户管理</template>
             </el-menu-item>
           </el-sub-menu>
+
+          <!-- 未来可期 -->
+          <el-menu-item index="/coming-soon">
+            <el-icon><MagicStick /></el-icon>
+            <template #title>未来可期</template>
+          </el-menu-item>
         </el-menu>
       </el-aside>
 

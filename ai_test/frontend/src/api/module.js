@@ -1,58 +1,42 @@
 /**
- * 项目模块管理API接口
+ * 业务线管理API接口（原模块管理，已升级为二级层级 + 人员分配）
  */
 import request from '@/utils/request'
 
-/**
- * 获取项目模块列表
- * @param {number} projectId - 项目ID
- */
+// ==================== 业务线 CRUD ====================
+
 export const getProjectModules = (projectId) => {
-  return request({
-    url: `/project/${projectId}/modules`,
-    method: 'get'
-  })
+  return request({ url: `/project/${projectId}/modules`, method: 'get' })
 }
 
-/**
- * 创建项目模块
- * @param {number} projectId - 项目ID
- * @param {Object} data - 模块数据
- * @param {string} data.name - 模块名称 (1-100字符)
- * @param {string} [data.description] - 模块描述
- */
 export const createProjectModule = (projectId, data) => {
-  return request({
-    url: `/project/${projectId}/modules`,
-    method: 'post',
-    data
-  })
+  return request({ url: `/project/${projectId}/modules`, method: 'post', data })
 }
 
-/**
- * 更新项目模块
- * @param {number} projectId - 项目ID
- * @param {number} moduleId - 模块ID
- * @param {Object} data - 模块更新数据
- * @param {string} data.name - 模块名称 (1-100字符)
- * @param {string} [data.description] - 模块描述
- */
 export const updateProjectModule = (projectId, moduleId, data) => {
-  return request({
-    url: `/project/${projectId}/modules/${moduleId}`,
-    method: 'put',
-    data
-  })
+  return request({ url: `/project/${projectId}/modules/${moduleId}`, method: 'put', data })
 }
 
-/**
- * 删除项目模块
- * @param {number} projectId - 项目ID
- * @param {number} moduleId - 模块ID
- */
 export const deleteProjectModule = (projectId, moduleId) => {
-  return request({
-    url: `/project/${projectId}/modules/${moduleId}`,
-    method: 'delete'
-  })
+  return request({ url: `/project/${projectId}/modules/${moduleId}`, method: 'delete' })
+}
+
+// ==================== 业务线成员管理 ====================
+
+export const addBusinessLineMember = (projectId, moduleId, data) => {
+  return request({ url: `/project/${projectId}/modules/${moduleId}/members`, method: 'post', data })
+}
+
+export const updateBusinessLineMember = (projectId, moduleId, memberId, data) => {
+  return request({ url: `/project/${projectId}/modules/${moduleId}/members/${memberId}`, method: 'put', data })
+}
+
+export const removeBusinessLineMember = (projectId, moduleId, memberId) => {
+  return request({ url: `/project/${projectId}/modules/${moduleId}/members/${memberId}`, method: 'delete' })
+}
+
+// ==================== 用户业务线信息 ====================
+
+export const getMyBusinessLines = (projectId) => {
+  return request({ url: `/project/${projectId}/my-business-lines`, method: 'get' })
 }
