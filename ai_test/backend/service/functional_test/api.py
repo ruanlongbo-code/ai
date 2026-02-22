@@ -103,7 +103,7 @@ async def create_requirement(
 async def get_requirements_list(
         project_id: int,
         module_id: Optional[int] = None,
-        status: Optional[str] = None,
+        req_status: Optional[str] = Query(None, alias="status"),
         priority: Optional[int] = None,
         page: int = 1,
         page_size: int = 20,
@@ -153,8 +153,8 @@ async def get_requirements_list(
                 )
             query_filters["module_id"] = module_id
             
-        if status is not None:
-            query_filters["status"] = status
+        if req_status is not None:
+            query_filters["status"] = req_status
             
         if priority is not None:
             query_filters["priority"] = priority
