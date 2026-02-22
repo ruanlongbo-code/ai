@@ -1,8 +1,3 @@
-import multiprocessing
-import asyncio
-from tortoise import Tortoise
-from main import TORTOISE_ORM
-
 # 工作进程（暂时使用 1 个 worker 来避免数据库初始化问题）
 workers = 1
 # 设置守护进程 - Docker容器中必须为False，否则容器会退出
@@ -39,20 +34,8 @@ def when_ready(server):
     pass
 
 def post_fork(server, worker):
-    """每个 worker 进程启动时执行"""
-    # 在每个 worker 中初始化数据库
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(Tortoise.init(config=TORTOISE_ORM, _enable_global_fallback=True))
-        except TypeError:
-            loop.run_until_complete(Tortoise.init(config=TORTOISE_ORM))
-        print(f"Worker {worker.pid}: Database initialized")
-    except Exception as e:
-        print(f"Worker {worker.pid}: Failed to initialize database: {e}")
+    """每个 worker 进程启动时执行（数据库初始化由 FastAPI lifespan 统一管理）"""
+    pass
 
 def pre_fork(server, worker):
     """worker 进程 fork 之前执行"""
