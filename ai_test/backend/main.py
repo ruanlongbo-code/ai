@@ -61,7 +61,10 @@ TORTOISE_ORM = {
 
 # 数据库初始化和关闭函数
 async def init_db():
-    await Tortoise.init(config=TORTOISE_ORM)
+    try:
+        await Tortoise.init(config=TORTOISE_ORM, _enable_global_fallback=True)
+    except TypeError:
+        await Tortoise.init(config=TORTOISE_ORM)
     await Tortoise.generate_schemas()
     # 初始化管理员账号
     await init_admin_user()

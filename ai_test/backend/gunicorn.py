@@ -46,7 +46,10 @@ def post_fork(server, worker):
         if loop.is_closed():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        loop.run_until_complete(Tortoise.init(config=TORTOISE_ORM))
+        try:
+            loop.run_until_complete(Tortoise.init(config=TORTOISE_ORM, _enable_global_fallback=True))
+        except TypeError:
+            loop.run_until_complete(Tortoise.init(config=TORTOISE_ORM))
         print(f"Worker {worker.pid}: Database initialized")
     except Exception as e:
         print(f"Worker {worker.pid}: Failed to initialize database: {e}")
