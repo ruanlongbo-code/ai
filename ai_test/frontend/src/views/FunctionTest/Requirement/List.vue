@@ -178,24 +178,15 @@
               </template>
             </el-table-column>
             
-            <el-table-column prop="created_at" label="创建时间" width="180">
+            <el-table-column prop="created_at" label="创建时间" width="170">
               <template #default="{ row }">
                 {{ formatDate(row.created_at) }}
               </template>
             </el-table-column>
-            
-            <el-table-column prop="updated_at" label="更新时间" width="180">
-              <template #default="{ row }">
-                {{ formatDate(row.updated_at) }}
-              </template>
-            </el-table-column>
           
-            <el-table-column label="操作" width="350" fixed="right">
+            <el-table-column label="操作" width="150" fixed="right">
               <template #default="{ row }">
                 <el-button size="small" type="primary" @click.stop="handleViewDetail(row)">查看</el-button>
-                <el-button size="small" @click.stop="handleEdit(row)">编辑</el-button>
-                <el-button size="small" type="warning" @click.stop="handleReview(row)">审核</el-button>
-                <el-button size="small" type="success" @click.stop="handleGenerateCases(row)">生成用例</el-button>
                 <el-button size="small" type="danger" @click.stop="handleDelete(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -771,5 +762,22 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   padding: 12px 0;
+}
+
+/* 修复 fixed 列背景透明导致内容重叠 */
+:deep(td.el-table-fixed-column--right) {
+  background-color: var(--el-table-bg-color, #fff) !important;
+  background: var(--el-table-bg-color, #fff) !important;
+}
+
+:deep(.el-table--striped .el-table__body tr.el-table__row--striped td.el-table-fixed-column--right) {
+  background-color: var(--el-table-row-striped-bg-color, #fafafa) !important;
+  background: var(--el-table-row-striped-bg-color, #fafafa) !important;
+}
+
+:deep(.el-table__body tr.hover-row td.el-table-fixed-column--right),
+:deep(.el-table__body tr:hover td.el-table-fixed-column--right) {
+  background-color: var(--el-table-row-hover-bg-color, #f5f7fa) !important;
+  background: var(--el-table-row-hover-bg-color, #f5f7fa) !important;
 }
 </style>
