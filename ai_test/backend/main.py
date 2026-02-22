@@ -21,6 +21,7 @@ from service.functional_test.api import router as functional_test_router
 from service.api_test.api import router as api_test_router
 from service.test_management.api import router as test_management_router
 from service.test_execution.api import router as test_execution_router
+from service.schedule.api import router as schedule_router
 import uvicorn
 
 # 加载环境变量
@@ -52,6 +53,7 @@ TORTOISE_ORM = {
                 "service.api_test.models",
                 "service.test_execution.models",
                 "service.test_management.models",
+                "service.schedule.models",
             ],
             "default_connection": "default",
         }
@@ -175,6 +177,7 @@ app.include_router(functional_test_router, prefix="/functional_test", tags=["功
 app.include_router(api_test_router, prefix="/api_test", tags=["接口测试"])
 app.include_router(test_management_router, prefix="/test_management", tags=["测试管理"])
 app.include_router(test_execution_router, prefix="/test_execution", tags=["测试执行"])
+app.include_router(schedule_router, prefix="/schedule", tags=["测试排期管理"])
 
 if __name__ == "__main__":
     uvicorn.run(
