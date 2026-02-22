@@ -66,8 +66,27 @@ async def init_db():
     except TypeError:
         await Tortoise.init(config=TORTOISE_ORM)
     await Tortoise.generate_schemas()
-    # 初始化管理员账号
+    await run_migrations()
     await init_admin_user()
+
+
+async def run_migrations():
+    """补充 generate_schemas() 无法处理的增量列变更（已有表新增字段）"""
+    conn = Tortoise.get_connection("default")
+    migrations = [
+        "ALTER TABLE `project_module` ADD COLUMN `sort_order` INT NOT NULL DEFAULT 0",
+        "ALTER TABLE `project_module` ADD COLUMN `parent_id` INT NULL",
+        "ALTER TABLE `project_module` ADD COLUMN `description` TEXT NULL",
+    ]
+    for sql in migrations:
+        try:
+            await conn.execute_query(sql)
+            logger.info(f"Migration applied: {sql}")
+        except Exception as e:
+            if "Duplicate column" in str(e):
+                pass
+            else:
+                logger.warning(f"Migration skipped: {e}")
 
 
 async def init_admin_user():
