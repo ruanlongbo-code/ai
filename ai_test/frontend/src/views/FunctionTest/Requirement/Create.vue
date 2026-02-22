@@ -22,6 +22,143 @@
       </div>
     </div>
 
+    <!-- AI 文档提取区域 -->
+    <div class="page-content ai-extract-section">
+      <el-card>
+        <template #header>
+          <div class="card-header">
+            <div class="title-section">
+              <h2>
+                <el-icon style="color: #8b5cf6; margin-right: 8px;"><MagicStick /></el-icon>
+                AI 智能提取需求
+              </h2>
+              <p class="subtitle">上传需求文档、粘贴文档内容或输入文档链接，AI 将自动提取需求信息并填充到下方表单</p>
+            </div>
+          </div>
+        </template>
+
+        <div class="extract-content">
+          <!-- 提取方式选择 -->
+          <el-radio-group v-model="extractMode" size="large" class="extract-mode-selector">
+            <el-radio-button value="file">
+              <el-icon><UploadFilled /></el-icon>
+              上传文档
+            </el-radio-button>
+            <el-radio-button value="text">
+              <el-icon><DocumentCopy /></el-icon>
+              粘贴文本
+            </el-radio-button>
+            <el-radio-button value="url">
+              <el-icon><Link /></el-icon>
+              文档链接
+            </el-radio-button>
+          </el-radio-group>
+
+          <!-- 文件上传 -->
+          <div v-if="extractMode === 'file'" class="extract-input-area">
+            <el-upload
+              ref="uploadRef"
+              v-model:file-list="uploadFileList"
+              :auto-upload="false"
+              :limit="1"
+              :on-exceed="handleExceed"
+              :on-change="handleFileChange"
+              accept=".pdf,.docx,.doc,.txt,.md"
+              drag
+              class="doc-upload"
+            >
+              <div class="upload-content">
+                <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+                <div class="el-upload__text">
+                  将文件拖到此处，或 <em>点击选择文件</em>
+                </div>
+                <div class="el-upload__tip">
+                  支持 PDF、Word（.docx）、TXT、Markdown 格式，文件大小不超过 10MB
+                </div>
+              </div>
+            </el-upload>
+          </div>
+
+          <!-- 粘贴文本（推荐用于飞书等需要登录的文档） -->
+          <div v-else-if="extractMode === 'text'" class="extract-input-area">
+            <el-alert
+              type="info"
+              :closable="false"
+              show-icon
+              style="margin-bottom: 12px;"
+            >
+              <template #title>
+                <span>推荐用于飞书、Notion 等需要登录才能访问的云文档。请在文档中全选复制（Ctrl+A → Ctrl+C），然后粘贴到下方输入框。</span>
+              </template>
+            </el-alert>
+            <el-input
+              v-model="extractText"
+              type="textarea"
+              :rows="10"
+              placeholder="请将需求文档内容粘贴到此处...&#10;&#10;操作方法：&#10;1. 打开飞书/Notion/Confluence 等文档&#10;2. 全选文档内容（Ctrl+A 或 Cmd+A）&#10;3. 复制（Ctrl+C 或 Cmd+C）&#10;4. 在此处粘贴（Ctrl+V 或 Cmd+V）"
+              maxlength="50000"
+              show-word-limit
+              resize="vertical"
+            />
+          </div>
+
+          <!-- URL 输入 -->
+          <div v-else class="extract-input-area">
+            <el-alert
+              type="warning"
+              :closable="false"
+              show-icon
+              style="margin-bottom: 12px;"
+            >
+              <template #title>
+                <span>⚠️ 飞书、Notion 等需要登录的云文档链接无法直接抓取，建议使用「粘贴文本」方式。此处仅支持公开可访问的网页链接。</span>
+              </template>
+            </el-alert>
+            <el-input
+              v-model="extractUrl"
+              placeholder="请输入公开可访问的需求文档链接，如 https://example.com/prd.html"
+              size="large"
+              clearable
+            >
+              <template #prepend>
+                <el-icon><Link /></el-icon>
+              </template>
+            </el-input>
+          </div>
+
+          <!-- 提取按钮 -->
+          <div class="extract-actions">
+            <el-button
+              type="primary"
+              size="large"
+              @click="handleExtract"
+              :loading="extracting"
+              :disabled="!canExtract"
+            >
+              <el-icon v-if="!extracting"><MagicStick /></el-icon>
+              {{ extracting ? 'AI 正在提取中...' : 'AI 智能提取' }}
+            </el-button>
+            <span v-if="extracting" class="extract-tip">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              AI 正在分析文档并提取需求信息，请稍候...
+            </span>
+          </div>
+
+          <!-- 提取结果提示 -->
+          <el-alert
+            v-if="extractSuccess"
+            title="需求信息提取成功！"
+            description="AI 已将提取的需求标题、描述和优先级自动填充到下方表单中，您可以进一步编辑完善。"
+            type="success"
+            show-icon
+            closable
+            @close="extractSuccess = false"
+            style="margin-top: 16px;"
+          />
+        </div>
+      </el-card>
+    </div>
+
     <!-- 创建表单 -->
     <div class="page-content">
       <el-card>
@@ -172,9 +309,10 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, MagicStick, UploadFilled, Link, Loading, DocumentCopy } from '@element-plus/icons-vue'
 import {
   createRequirement,
+  extractRequirementFromDocument,
   REQUIREMENT_STATUS_LABELS,
   REQUIREMENT_PRIORITY_LABELS,
   REQUIREMENT_PRIORITY_COLORS,
@@ -193,6 +331,15 @@ const saving = ref(false)
 const saveType = ref('')
 const modules = ref([])
 const createFormRef = ref()
+
+// AI 提取相关
+const extractMode = ref('text') // 'file', 'text', or 'url'
+const uploadFileList = ref([])
+const extractUrl = ref('')
+const extractText = ref('')
+const extracting = ref(false)
+const extractSuccess = ref(false)
+const uploadRef = ref()
 
 // 创建表单
 const createForm = reactive({
@@ -383,6 +530,105 @@ const handleSubmit = async () => {
   }
 }
 
+// === AI 文档提取相关方法 ===
+
+// 是否可以执行提取
+const canExtract = computed(() => {
+  if (extractMode.value === 'file') {
+    return uploadFileList.value.length > 0
+  } else if (extractMode.value === 'text') {
+    return extractText.value.trim().length > 0
+  } else {
+    return extractUrl.value.trim().length > 0
+  }
+})
+
+// 文件数量超限处理
+const handleExceed = () => {
+  ElMessage.warning('只能上传一个文件，请先移除已选文件')
+}
+
+// 文件变化处理
+const handleFileChange = (file) => {
+  // 验证文件大小
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('文件大小不能超过 10MB')
+    uploadFileList.value = []
+    return
+  }
+  // 验证文件类型
+  const allowedExts = ['.pdf', '.docx', '.doc', '.txt', '.md']
+  const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
+  if (!allowedExts.includes(ext)) {
+    ElMessage.error('不支持的文件格式，请上传 PDF、Word、TXT 或 Markdown 文件')
+    uploadFileList.value = []
+    return
+  }
+}
+
+// 执行 AI 提取
+const handleExtract = async () => {
+  if (!projectId.value) return
+
+  extracting.value = true
+  extractSuccess.value = false
+
+  try {
+    const formData = new FormData()
+
+    if (extractMode.value === 'file') {
+      if (uploadFileList.value.length === 0) {
+        ElMessage.warning('请先选择要上传的文档文件')
+        extracting.value = false
+        return
+      }
+      formData.append('file', uploadFileList.value[0].raw)
+    } else if (extractMode.value === 'text') {
+      if (!extractText.value.trim()) {
+        ElMessage.warning('请粘贴需求文档内容')
+        extracting.value = false
+        return
+      }
+      formData.append('text', extractText.value.trim())
+    } else {
+      if (!extractUrl.value.trim()) {
+        ElMessage.warning('请输入文档链接地址')
+        extracting.value = false
+        return
+      }
+      formData.append('url', extractUrl.value.trim())
+    }
+
+    const response = await extractRequirementFromDocument(projectId.value, formData)
+
+    if (response.data && response.data.success) {
+      const extractedData = response.data.data
+
+      // 将提取的数据填充到表单
+      if (extractedData.title) {
+        createForm.title = extractedData.title
+      }
+      if (extractedData.description) {
+        createForm.description = extractedData.description
+      }
+      if (extractedData.priority && [1, 2, 3].includes(extractedData.priority)) {
+        createForm.priority = extractedData.priority
+      }
+
+      extractSuccess.value = true
+      ElMessage.success('AI 需求信息提取成功，已自动填充到表单中')
+    } else {
+      ElMessage.error(response.data?.message || 'AI 提取失败，请稍后重试')
+    }
+  } catch (error) {
+    console.error('AI 提取失败:', error)
+    const errorMsg = error.response?.data?.detail || error.message || 'AI 提取失败，请稍后重试'
+    ElMessage.error(errorMsg)
+  } finally {
+    extracting.value = false
+  }
+}
+
 const handleCancel = async () => {
   // 检查是否有未保存的内容
   const hasContent = createForm.title.trim() || createForm.description.trim()
@@ -421,6 +667,105 @@ onMounted(async () => {
 
 .page-header {
   margin-bottom: 24px;
+}
+
+/* AI 提取区域样式 */
+.ai-extract-section {
+  margin-bottom: 24px;
+}
+
+.ai-extract-section .card-header h2 {
+  display: flex;
+  align-items: center;
+}
+
+.extract-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.extract-mode-selector {
+  align-self: flex-start;
+}
+
+.extract-mode-selector .el-radio-button__inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.extract-input-area {
+  width: 100%;
+}
+
+.doc-upload {
+  width: 100%;
+}
+
+.doc-upload :deep(.el-upload-dragger) {
+  width: 100%;
+  padding: 40px 20px;
+  border: 2px dashed #d9d9d9;
+  border-radius: 8px;
+  transition: border-color 0.3s;
+}
+
+.doc-upload :deep(.el-upload-dragger:hover) {
+  border-color: #8b5cf6;
+}
+
+.doc-upload :deep(.el-upload) {
+  width: 100%;
+}
+
+.upload-content {
+  text-align: center;
+}
+
+.upload-content .el-icon--upload {
+  font-size: 48px;
+  color: #8b5cf6;
+  margin-bottom: 12px;
+}
+
+.upload-content .el-upload__text {
+  color: #606266;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.upload-content .el-upload__text em {
+  color: #8b5cf6;
+  font-style: normal;
+}
+
+.upload-content .el-upload__tip {
+  color: #909399;
+  font-size: 12px;
+}
+
+.extract-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.extract-tip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8b5cf6;
+  font-size: 14px;
+}
+
+.extract-tip .is-loading {
+  animation: rotate 1.5s linear infinite;
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .header-content {

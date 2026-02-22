@@ -22,6 +22,10 @@ worker_class = 'uvicorn.workers.UvicornWorker'
 threads = 2
 # 设置最大并发量
 worker_connections = 2000
+# 请求超时时间（秒）- AI处理可能耗时较长，设置为180秒
+timeout = 180
+# 优雅关闭超时
+graceful_timeout = 60
 # 错误日志的日志级别
 loglevel = 'info'
 

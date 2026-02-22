@@ -285,3 +285,39 @@ export const reviewFunctionalCase = (projectId, caseId, reviewData) => {
     data: reviewData
   })
 }
+
+/**
+ * 导出测试用例为 XMind 文件
+ * @param {number} projectId - 项目ID
+ * @param {number} requirementId - 需求ID
+ * @param {Object} templateSettings - XMind模板设置
+ * @returns {Promise} 返回 Blob 数据
+ */
+export const exportCasesAsXmind = (projectId, requirementId, templateSettings = {}) => {
+  return request({
+    url: `/functional_test/${projectId}/requirements/${requirementId}/export_xmind`,
+    method: 'get',
+    params: templateSettings,
+    responseType: 'blob',
+    timeout: 60000
+  })
+}
+
+/**
+ * 从文档中AI提取需求信息
+ * @param {number} projectId - 项目ID
+ * @param {FormData} formData - 包含 file（文件）或 url（链接）
+ * @returns {Promise} 返回提取的需求信息 { title, description, priority, raw_text }
+ */
+export const extractRequirementFromDocument = (projectId, formData) => {
+  return request({
+    url: `/functional_test/extract_requirement`,
+    method: 'post',
+    params: { project_id: projectId },
+    data: formData,
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    },
+    timeout: 120000 // AI提取可能需要较长时间，设置2分钟超时
+  })
+}

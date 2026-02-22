@@ -1,12 +1,15 @@
 """
 功能测试模块API路由
 """
-from fastapi import APIRouter, HTTPException, Depends, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form, Query
+from fastapi.responses import StreamingResponse, Response
 from typing import Optional
 from tortoise.transactions import in_transaction
 import json
+import re
 import asyncio
+import logging
+import traceback
 from .models import RequirementDoc, FunctionalCase
 from .schemas import (RequirementCreateRequest, RequirementResponse, RequirementUpdateRequest, RequirementDetailItem,
                       RequirementDetailListResponse, RequirementReviewRequest,
@@ -17,6 +20,8 @@ from service.project.models import Project, ProjectModule
 from utils.permissions import verify_admin_or_project_owner, verify_admin_or_project_member, \
     verify_admin_or_project_editor
 from workflow.case_generator_workflow import GeneratorTestCaseWorkflow
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -1077,4 +1082,257 @@ async def generate_test_cases_from_requirement(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"生成测试用例失败：{str(e)}"
+        )
+
+
+@router.post("/extract_requirement", summary="从文档中AI提取需求信息")
+async def extract_requirement_from_document(
+        file: Optional[UploadFile] = File(None, description="需求文档文件（支持 PDF、DOCX、TXT、MD）"),
+        url: Optional[str] = Form(None, description="需求文档链接（仅支持公开可访问的链接）"),
+        text: Optional[str] = Form(None, description="粘贴的文档文本内容（推荐用于飞书等需要登录的云文档）"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    从上传的文档文件、粘贴的文本内容或文档链接中，使用AI提取结构化的需求信息。
+
+    支持三种输入方式（三选一）：
+    1. 上传文件：支持 PDF、DOCX、TXT、MD 格式，最大 10MB
+    2. 粘贴文本：直接粘贴文档内容（推荐用于飞书、Notion等需要登录才能访问的云文档）
+    3. 文档链接：支持公开可访问的网页链接，会自动抓取页面内容
+
+    返回：
+    - title: 提取的需求标题
+    - description: 提取的需求描述
+    - priority: 建议的优先级（1=低, 2=中, 3=高）
+    - raw_text: 从文档中提取的原始文本（前2000字符预览）
+    """
+    project, current_user = project_user
+
+    try:
+        # 验证输入：必须提供文件、文本或链接
+        if not (file and file.filename) and not text and not url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="请上传文档文件、粘贴文档内容或提供文档链接"
+            )
+
+        extracted_text = ""
+
+        # 方式一：从上传的文件中提取文本
+        if file and file.filename:
+            from utils.parser.requirement_document_parser import (
+                extract_text_from_file,
+                SUPPORTED_EXTENSIONS,
+                MAX_FILE_SIZE
+            )
+            import os
+
+            # 验证文件扩展名
+            ext = os.path.splitext(file.filename)[1].lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"不支持的文件格式: {ext}，支持的格式为: PDF, DOCX, TXT, MD"
+                )
+
+            # 读取文件内容
+            file_content = await file.read()
+
+            # 验证文件大小
+            if len(file_content) > MAX_FILE_SIZE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="文件大小超过限制（最大10MB）"
+                )
+
+            # 提取文本
+            try:
+                extracted_text = extract_text_from_file(file.filename, file_content)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"文件解析失败: {str(e)}"
+                )
+
+        # 方式二：直接使用粘贴的文本内容
+        elif text:
+            extracted_text = text.strip()
+            if not extracted_text:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="粘贴的文本内容为空，请确认已正确复制文档内容"
+                )
+
+        # 方式三：从URL中提取文本
+        elif url:
+            from utils.parser.requirement_document_parser import extract_text_from_url
+
+            # 基本URL验证
+            if not url.startswith(('http://', 'https://')):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="请提供有效的HTTP/HTTPS链接"
+                )
+
+            try:
+                extracted_text = extract_text_from_url(url)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"无法获取链接内容: {str(e)}"
+                )
+
+        # 验证提取的文本不为空
+        if not extracted_text or not extracted_text.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="未能从文档中提取到有效文本内容"
+            )
+
+        # 截断过长的文本（避免超出LLM上下文窗口）
+        max_text_length = 8000
+        if len(extracted_text) > max_text_length:
+            extracted_text_for_ai = extracted_text[:max_text_length] + "\n\n[... 文档内容过长，已截断 ...]"
+        else:
+            extracted_text_for_ai = extracted_text
+
+        # 使用AI提取需求信息
+        from config.prompts.parser.requirement_extractor import prompt as req_prompt
+        from config.settings import llm
+        from langchain_core.output_parsers import JsonOutputParser
+
+        chain = req_prompt | llm | JsonOutputParser()
+        ai_result = chain.invoke({"document_content": extracted_text_for_ai})
+
+        # 构建返回结果
+        return {
+            "success": True,
+            "message": "需求信息提取成功",
+            "data": {
+                "title": ai_result.get("title", ""),
+                "description": ai_result.get("description", ""),
+                "priority": ai_result.get("priority", 2),
+                "raw_text": extracted_text[:2000] + ("..." if len(extracted_text) > 2000 else "")
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"AI提取需求信息失败: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI提取需求信息失败: {str(e)}"
+        )
+
+
+@router.get("/{project_id}/requirements/{requirement_id}/export_xmind", summary="导出测试用例为XMind文件")
+async def export_cases_as_xmind(
+        project_id: int,
+        requirement_id: int,
+        show_priority: bool = Query(True, description="用例标题前显示优先级"),
+        show_case_id: bool = Query(False, description="用例标题显示用例编号"),
+        show_node_labels: bool = Query(False, description="注明节点属性（如 前置条件：xxx）"),
+        root_prefix: str = Query("验证", description="根节点前缀"),
+        root_suffix: str = Query("功能", description="根节点后缀"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    将需求关联的测试用例导出为 XMind 思维导图文件。
+
+    默认模板格式：
+    - 根节点：验证{需求标题}功能
+    - 二级节点：{优先级} 用例标题（不含用例编号）
+    - 三级叶子节点：前置条件、测试步骤、预期结果（编号列表合并为单行）
+    - 默认不显示节点属性标记
+
+    参数：
+    - show_priority: 用例标题前显示优先级（默认 True）
+    - show_case_id: 用例标题显示用例编号（默认 False）
+    - show_node_labels: 注明节点属性标签（默认 False，如 "前置条件：xxx"）
+    - root_prefix: 根节点前缀（默认 "验证"）
+    - root_suffix: 根节点后缀（默认 "功能"）
+    """
+    project, current_user = project_user
+
+    try:
+        # 查询需求
+        requirement = await RequirementDoc.get_or_none(id=requirement_id)
+        if not requirement:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="需求不存在"
+            )
+
+        # 验证需求属于该项目
+        module = await ProjectModule.get_or_none(id=requirement.module_id)
+        if not module or module.project_id != project_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="需求不属于该项目"
+            )
+
+        # 查询关联的测试用例
+        cases = await FunctionalCase.filter(requirement_id=requirement_id).order_by('id').all()
+
+        if not cases:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该需求下暂无测试用例，请先生成用例后再导出"
+            )
+
+        # 将 ORM 对象转为字典列表
+        cases_data = []
+        for case in cases:
+            cases_data.append({
+                "case_no": case.case_no,
+                "case_name": case.case_name,
+                "priority": case.priority,
+                "preconditions": case.preconditions or "",
+                "test_steps": case.test_steps or "",
+                "expected_result": case.expected_result or "",
+            })
+
+        # 构建模板设置
+        template_settings = {
+            "show_priority": show_priority,
+            "show_case_id": show_case_id,
+            "show_node_labels": show_node_labels,
+            "root_prefix": root_prefix,
+            "root_suffix": root_suffix,
+        }
+
+        # 生成 XMind 文件
+        from utils.xmind_generator import generate_xmind_file
+
+        xmind_bytes = generate_xmind_file(
+            requirement_title=requirement.title,
+            test_cases=cases_data,
+            template_settings=template_settings
+        )
+
+        # 构建文件名
+        safe_title = re.sub(r'[\\/:*?"<>|]', '_', requirement.title)[:50]
+        filename = f"{safe_title}_测试用例.xmind"
+
+        # 返回文件下载响应
+        from urllib.parse import quote
+        encoded_filename = quote(filename)
+
+        return Response(
+            content=xmind_bytes,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                "Content-Type": "application/octet-stream",
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"导出XMind失败: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"导出XMind文件失败: {str(e)}"
         )

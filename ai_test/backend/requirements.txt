@@ -33,3 +33,11 @@ bcrypt
 python-multipart
 gunicorn
 PyJWT
+
+# 文档解析
+python-docx
+pdfplumber
+beautifulsoup4
+
+# HTTP客户端（飞书推送）
+httpx
