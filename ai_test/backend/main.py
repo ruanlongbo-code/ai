@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html, get_redoc_html
 from starlette.staticfiles import StaticFiles
 from tortoise import Tortoise
-from tortoise.context import TortoiseContext
 from service.user.models import User
 from utils.auth import AuthUtils
 import logging
@@ -62,8 +61,7 @@ TORTOISE_ORM = {
 
 # 数据库初始化和关闭函数
 async def init_db():
-    # _enable_global_fallback=True 确保全局上下文在所有 asyncio task 中可用
-    await Tortoise.init(config=TORTOISE_ORM, _enable_global_fallback=True)
+    await Tortoise.init(config=TORTOISE_ORM)
     await Tortoise.generate_schemas()
     # 初始化管理员账号
     await init_admin_user()
@@ -154,8 +152,6 @@ async def redoc_html():
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # 配置中间件
-# 注意：不再使用 TortoiseContextMiddleware，因为 Tortoise.init(_enable_global_fallback=True)
-# 已经设置了全局上下文，TortoiseContext() 会创建空的隔离上下文覆盖全局配置
 app.add_middleware(
     CORSMiddleware,
     # 指定前端调试来源，避免凭证模式与通配符冲突

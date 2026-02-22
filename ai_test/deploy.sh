@@ -1,83 +1,74 @@
 #!/bin/bash
-# 介绍参数作为项目的名字，默认是py
-project=${1:-py}
-echo $project
-# 部署函数
-deploy(){
-	echo "部署项目"
-	echo "注意部署项目会强制构建镜像"
-	docker-compose -p $project up -d --build && echo "部署成功"
-}
+set -e
 
-# 重启函数
-restart(){
-	echo "重启项目"
-	docker-compose -p $project restart && echo "重启成功"
-}
+echo "========================================="
+echo "  AiProtect 智能测试平台 - 一键部署脚本"
+echo "========================================="
 
-# 暂停函数
-close(){
-	echo "暂停项目"
-	docker-compose -p $project stop && echo "暂停成功"
-}
+# -------- 1. 检查 Docker --------
+if ! command -v docker &> /dev/null; then
+    echo "[1/4] Docker 未安装，正在安装..."
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable docker
+    systemctl start docker
+    echo "Docker 安装完成"
+else
+    echo "[1/4] Docker 已安装: $(docker --version)"
+fi
 
-# 删除函数
-delete(){
-	echo "删除项目"
-	echo "为了数据安全删除项目只会删除容器，不会删除数据卷，要删除卷请手动操作"
-	docker-compose -p $project down && echo "删除成功"
-}
+if ! docker compose version &> /dev/null; then
+    echo "错误: docker compose 插件未安装，请手动安装 docker-compose-plugin"
+    exit 1
+fi
 
-# 删除函数
-clear(){
-  echo "删除镜像"
-  echo "build过程中会出现虚悬镜像，虚悬镜像不会自动删除而占用存储空间，为此删除空的镜像"
-      empty_images=$(docker images -qf dangling=true)
-      if [ -n "$empty_images" ]; then
-          docker rmi $empty_images
-          echo "已删除镜像名称为空的镜像"
-      else
-          echo "没有发现镜像名称为空的镜像"
-      fi
-}
+# -------- 2. 检查端口 80 是否被占用 --------
+if ss -tlnp | grep -q ':80 '; then
+    echo "警告: 端口 80 已被占用，可能需要先停止占用的服务（如 nginx、apache）"
+    echo "占用情况:"
+    ss -tlnp | grep ':80 '
+    read -p "是否继续部署？(y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
 
-# 开始函数
-start(){
-	while true
-	do
-		select name in "部署项目" "重启项目" "暂停项目" "删除项目" "删除镜像" "退出菜单"
-		do
-			case $name in
-				"部署项目")
-					deploy
-					break
-					;;
-				"重启项目")
-					restart
-					break
-					;;
-				"暂停项目")
-					close
-					break
-					;;
-				"删除项目")
-					delete
-					break
-					;;
-			  "删除镜像")
-					clear
-					break
-					;;
-				"退出菜单")
-					echo "退出菜单"
-					break
-					;;
-			esac
-		done
-		if [ $name = "退出菜单" ]; then
-			break
-		fi
-	done
-}
+# -------- 3. 构建并启动 --------
+echo "[2/4] 开始构建 Docker 镜像（首次约 5-10 分钟）..."
+docker compose up -d --build
 
-start
+# -------- 4. 等待服务就绪 --------
+echo "[3/4] 等待服务启动..."
+max_retries=30
+counter=0
+while ! docker exec py_mysql mysqladmin ping -h localhost -u root -p123456py --silent 2>/dev/null; do
+    counter=$((counter + 1))
+    if [ $counter -ge $max_retries ]; then
+        echo "MySQL 启动超时，请检查日志: docker logs py_mysql"
+        exit 1
+    fi
+    echo "  等待 MySQL 就绪... ($counter/$max_retries)"
+    sleep 3
+done
+echo "  MySQL 已就绪"
+
+sleep 5
+
+# -------- 5. 检查服务状态 --------
+echo "[4/4] 检查服务状态..."
+echo ""
+docker compose ps
+echo ""
+echo "========================================="
+echo "  部署完成！"
+echo ""
+echo "  访问地址: http://$(curl -s ifconfig.me 2>/dev/null || echo '你的服务器IP')"
+echo "  登录账号: admin"
+echo "  登录密码: 123456"
+echo ""
+echo "  常用命令:"
+echo "    查看日志:   docker compose logs -f"
+echo "    重启服务:   docker compose restart"
+echo "    停止服务:   docker compose down"
+echo "    重新构建:   docker compose up -d --build"
+echo "========================================="
