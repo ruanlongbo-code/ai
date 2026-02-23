@@ -53,6 +53,25 @@ const routes = [
         component: () => import('../views/ProjectSettings/Member/Index.vue'),
         meta: { title: '成员管理', icon: 'User', requiresAdmin: true }
       },
+      // 知识库
+      {
+        path: 'knowledge/document',
+        name: 'KnowledgeDocument',
+        component: () => import('../views/Knowledge/Document/Index.vue'),
+        meta: { title: '文档管理', icon: 'FolderOpened' }
+      },
+      {
+        path: 'knowledge/search',
+        name: 'KnowledgeSearch',
+        component: () => import('../views/Knowledge/Search/Index.vue'),
+        meta: { title: '知识检索', icon: 'Search' }
+      },
+      {
+        path: 'knowledge/case-set',
+        name: 'KnowledgeCaseSet',
+        component: () => import('../views/Knowledge/CaseSet/Index.vue'),
+        meta: { title: '用例集', icon: 'Notebook' }
+      },
       // 功能测试
       {
         path: 'function-test/requirement',
@@ -193,6 +212,12 @@ const routes = [
         name: 'UiTestCase',
         component: () => import('../views/UiTest/Case/Index.vue'),
         meta: { title: '用例管理', icon: 'List' }
+      },
+      {
+        path: 'ui-test/execute/:caseId',
+        name: 'UiTestExecute',
+        component: () => import('../views/UiTest/Execute/Index.vue'),
+        meta: { title: 'AI执行', icon: 'VideoPlay' }
       },
       // 测试排期管理
       {

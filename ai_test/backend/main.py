@@ -21,6 +21,8 @@ from service.api_test.api import router as api_test_router
 from service.test_management.api import router as test_management_router
 from service.test_execution.api import router as test_execution_router
 from service.schedule.api import router as schedule_router
+from service.knowledge.api import router as knowledge_router
+from service.ui_test.api import router as ui_test_router
 import uvicorn
 
 # 加载环境变量
@@ -53,6 +55,8 @@ TORTOISE_ORM = {
                 "service.test_execution.models",
                 "service.test_management.models",
                 "service.schedule.models",
+                "service.knowledge.models",
+                "service.ui_test.models",
             ],
             "default_connection": "default",
         }
@@ -172,6 +176,8 @@ async def redoc_html():
 
 # 接口文档的静态文件路径
 app.mount("/static", StaticFiles(directory="static"), name="static")
+# UI测试截图静态文件
+app.mount("/screenshots", StaticFiles(directory="screenshots"), name="screenshots")
 
 # 配置中间件
 app.add_middleware(
@@ -196,6 +202,8 @@ app.include_router(api_test_router, prefix="/api_test", tags=["接口测试"])
 app.include_router(test_management_router, prefix="/test_management", tags=["测试管理"])
 app.include_router(test_execution_router, prefix="/test_execution", tags=["测试执行"])
 app.include_router(schedule_router, prefix="/schedule", tags=["测试排期管理"])
+app.include_router(knowledge_router, prefix="/knowledge", tags=["知识库"])
+app.include_router(ui_test_router, prefix="/ui_test", tags=["UI测试"])
 
 if __name__ == "__main__":
     uvicorn.run(
