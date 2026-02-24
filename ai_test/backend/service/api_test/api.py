@@ -9,7 +9,7 @@ import traceback
 import os
 import uuid
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from tortoise.transactions import in_transaction
 
 from .schemas import (
@@ -25,12 +25,29 @@ from .schemas import (
     ApiBaseCaseUpdateRequest, ApiBaseCaseUpdateResponse, ApiTestCaseBatchEditRequest, ApiTestCaseBatchEditResponse,
     ApiBaseCaseGenerateRequest, ApiBaseCaseGenerateResponse, ApiTestCaseGenerateRequest, ApiTestCaseGenerateResponse,
     ApiCompleteTestCaseGenerateRequest, ApiCompleteTestCaseGenerateResponse, ApiBaseCaseDeleteResponse,
-    ApiBaseCaseCreateRequest, ApiBaseCaseCreateResponse
+    ApiBaseCaseCreateRequest, ApiBaseCaseCreateResponse,
+    # Phase 1: Quick Debug
+    QuickDebugRequest, QuickDebugResponse, QuickDebugHistoryListResponse, QuickDebugHistoryItem,
+    QuickDebugHistoryDetail, CurlImportRequest, CurlImportResponse, CurlExportResponse,
+    # Phase 2: Scheduled Task + CI
+    ScheduledTaskCreateRequest, ScheduledTaskResponse, ScheduledTaskUpdateRequest, ScheduledTaskListResponse,
+    CiTriggerRequest, CiTriggerResponse, CurlToInterfaceRequest,
+    # Phase 3: Webhook
+    WebhookConfigCreateRequest, WebhookConfigResponse, WebhookConfigUpdateRequest, WebhookConfigListResponse,
 )
-from .models import ApiInterface, ApiDependencyGroup, ApiDependency, ApiBaseCase, ApiTestCase
+from .models import ApiInterface, ApiDependencyGroup, ApiDependency, ApiBaseCase, ApiTestCase, \
+    QuickDebugHistory, ScheduledTask, WebhookConfig
+import httpx
+import time
+import shlex
+import re
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
 from service.user.models import User
 from service.project.models import Project
 from service.test_environment.models import TestEnvironment, TestEnvironmentConfig, TestEnvironmentDb
+from service.test_management.models import TestTask, TestSuite, TaskSuiteRelation, SuiteCaseRelation
+from service.test_execution.models import ApiCaseRun, TestSuiteRun, TestTaskRun
 from utils.permissions import verify_admin_or_project_owner, verify_admin_or_project_editor, \
     verify_admin_or_project_member
 from utils.auth import get_current_user
@@ -48,7 +65,7 @@ router = APIRouter()
 async def import_swagger_apis(
         project_id: int,
         swagger_file: UploadFile = File(..., description="Swagger接口文档JSON文件"),
-        project_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
     """
     导入Swagger接口文档到指定项目
@@ -58,7 +75,7 @@ async def import_swagger_apis(
     - swagger_file: Swagger接口文档JSON文件
     
     权限要求：
-    - 项目负责人或管理员
+    - 项目编辑者、负责人或管理员
     
     返回：
     - 导入成功/失败状态和导入的接口数量
@@ -212,7 +229,7 @@ async def import_swagger_apis(
 async def import_openapi_apis(
         project_id: int,
         openapi_file: UploadFile = File(..., description="OpenAPI接口文档JSON文件"),
-        project_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
     """
     导入OpenAPI接口文档到指定项目
@@ -222,7 +239,7 @@ async def import_openapi_apis(
     - openapi_file: OpenAPI接口文档JSON文件
     
     权限要求：
-    - 项目负责人或管理员
+    - 项目编辑者、负责人或管理员
     
     返回：
     - 导入成功/失败状态和导入的接口数量
@@ -2619,13 +2636,15 @@ async def generate_complete_test_cases(
 
                 # 生成完成消息
                 complete_msg = "完整测试用例生成完成"
-                yield f"data: {json.dumps({'type': 'info', 'message': complete_msg}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'complete', 'message': complete_msg}, ensure_ascii=False)}\n\n"
 
             except Exception as e:
-                # raise e
                 # 生成错误消息
                 error_msg = f"生成完整测试用例失败: {str(e)}"
                 yield f"data: {json.dumps({'type': 'error', 'message': error_msg}, ensure_ascii=False)}\n\n"
+            finally:
+                # 发送结束标记
+                yield f"data: [DONE]\n\n"
 
         # 返回SSE流式响应
         return StreamingResponse(
@@ -2650,3 +2669,1202 @@ async def generate_complete_test_cases(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"生成完整测试用例失败: {str(e)}"
         )
+
+
+# ==================== Phase 1: 快捷调试 ====================
+
+def _parse_curl_command(curl_str: str) -> dict:
+    """解析cURL命令字符串为请求参数字典"""
+    curl_str = curl_str.strip()
+    # 去掉换行续行符
+    curl_str = curl_str.replace('\\\n', ' ').replace('\\\r\n', ' ')
+
+    try:
+        tokens = shlex.split(curl_str)
+    except ValueError:
+        # fallback: 简单空格拆分
+        tokens = curl_str.split()
+
+    if not tokens or tokens[0].lower() != 'curl':
+        raise ValueError("不是有效的cURL命令")
+
+    method = 'GET'
+    url = ''
+    headers = {}
+    data_raw = None
+    body_type = 'none'
+
+    i = 1
+    while i < len(tokens):
+        token = tokens[i]
+        if token in ('-X', '--request'):
+            i += 1
+            if i < len(tokens):
+                method = tokens[i].upper()
+        elif token in ('-H', '--header'):
+            i += 1
+            if i < len(tokens):
+                header_val = tokens[i]
+                if ':' in header_val:
+                    k, v = header_val.split(':', 1)
+                    headers[k.strip()] = v.strip()
+        elif token in ('-d', '--data', '--data-raw', '--data-binary', '--data-urlencode'):
+            i += 1
+            if i < len(tokens):
+                data_raw = tokens[i]
+                if method == 'GET':
+                    method = 'POST'
+        elif token in ('-u', '--user'):
+            i += 1  # 跳过认证
+        elif token.startswith('http://') or token.startswith('https://'):
+            url = token
+        elif not token.startswith('-') and not url:
+            url = token
+        i += 1
+
+    # 解析URL中的query参数
+    parsed_url = urlparse(url)
+    params = {}
+    if parsed_url.query:
+        for k, v_list in parse_qs(parsed_url.query).items():
+            params[k] = v_list[0] if len(v_list) == 1 else v_list
+        # 清理URL中的query部分
+        url = urlunparse(parsed_url._replace(query=''))
+
+    # 解析body
+    body = None
+    if data_raw:
+        try:
+            body = json.loads(data_raw)
+            body_type = 'json'
+        except (json.JSONDecodeError, TypeError):
+            # 尝试form
+            if '=' in data_raw:
+                body = dict(item.split('=', 1) for item in data_raw.split('&') if '=' in item)
+                body_type = 'form'
+            else:
+                body = data_raw
+                body_type = 'text'
+
+    return {
+        'method': method,
+        'url': url,
+        'headers': headers,
+        'params': params,
+        'body': body,
+        'body_type': body_type,
+    }
+
+
+def _build_curl_command(method: str, url: str, headers: dict = None,
+                        params: dict = None, body=None, body_type: str = 'json') -> str:
+    """根据请求参数构建cURL命令"""
+    parts = ['curl']
+
+    if method.upper() != 'GET':
+        parts.append(f"-X {method.upper()}")
+
+    # 添加query参数到URL
+    if params:
+        sep = '&' if '?' in url else '?'
+        url = url + sep + urlencode(params)
+
+    parts.append(f"'{url}'")
+
+    if headers:
+        for k, v in headers.items():
+            parts.append(f"-H '{k}: {v}'")
+
+    if body is not None:
+        if body_type == 'json':
+            body_str = json.dumps(body, ensure_ascii=False)
+            parts.append(f"--data-raw '{body_str}'")
+        elif body_type == 'form':
+            if isinstance(body, dict):
+                body_str = urlencode(body)
+            else:
+                body_str = str(body)
+            parts.append(f"-d '{body_str}'")
+        elif body_type == 'text':
+            parts.append(f"-d '{body}'")
+
+    return ' \\\n  '.join(parts)
+
+
+@router.post("/{project_id}/quick-debug/send", response_model=QuickDebugResponse, summary="快捷调试-发送请求")
+async def quick_debug_send(
+        project_id: int,
+        req: QuickDebugRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    快捷调试：发送HTTP请求并保存历史记录
+
+    类似Postman的请求发送功能，支持GET/POST/PUT/DELETE/PATCH等方法。
+    """
+    project, current_user = project_user
+
+    error_msg = None
+    resp_status = None
+    resp_headers = None
+    resp_body = None
+    resp_time = None
+    resp_size = None
+
+    try:
+        # 构建请求
+        request_url = req.url
+        if req.params:
+            sep = '&' if '?' in request_url else '?'
+            request_url = request_url + sep + urlencode(req.params)
+
+        # 构建请求体
+        content = None
+        send_headers = dict(req.headers) if req.headers else {}
+        if req.body is not None and req.body_type != 'none':
+            if req.body_type == 'json':
+                content = json.dumps(req.body, ensure_ascii=False).encode('utf-8')
+                send_headers.setdefault('Content-Type', 'application/json')
+            elif req.body_type == 'form':
+                if isinstance(req.body, dict):
+                    content = urlencode(req.body).encode('utf-8')
+                else:
+                    content = str(req.body).encode('utf-8')
+                send_headers.setdefault('Content-Type', 'application/x-www-form-urlencoded')
+            elif req.body_type == 'text':
+                content = str(req.body).encode('utf-8')
+                send_headers.setdefault('Content-Type', 'text/plain')
+
+        # 发送请求
+        start_time = time.time()
+        async with httpx.AsyncClient(timeout=30, verify=False, follow_redirects=True) as client:
+            response = await client.request(
+                method=req.method.upper(),
+                url=request_url,
+                headers=send_headers,
+                content=content,
+            )
+        elapsed = (time.time() - start_time) * 1000  # ms
+
+        resp_status = response.status_code
+        resp_headers = dict(response.headers)
+        resp_body = response.text[:50000]  # 截断保存，最多50K
+        resp_time = round(elapsed, 2)
+        resp_size = len(response.content)
+
+    except httpx.TimeoutException:
+        error_msg = "请求超时（30秒）"
+    except httpx.ConnectError as e:
+        error_msg = f"连接失败: {str(e)}"
+    except Exception as e:
+        error_msg = f"请求失败: {str(e)}"
+
+    # 保存历史记录
+    history = await QuickDebugHistory.create(
+        name=req.name,
+        method=req.method.upper(),
+        url=req.url,
+        headers=req.headers or {},
+        params=req.params or {},
+        body=req.body,
+        body_type=req.body_type,
+        response_status=resp_status,
+        response_headers=resp_headers,
+        response_body=resp_body,
+        response_time=resp_time,
+        response_size=resp_size,
+        project_id=project_id,
+        user_id=current_user.id,
+    )
+
+    return QuickDebugResponse(
+        history_id=history.id,
+        status_code=resp_status,
+        response_headers=resp_headers,
+        response_body=resp_body,
+        response_time=resp_time,
+        response_size=resp_size,
+        error=error_msg,
+    )
+
+
+@router.get("/{project_id}/quick-debug/history", response_model=QuickDebugHistoryListResponse,
+            summary="快捷调试-请求历史列表")
+async def quick_debug_history_list(
+        project_id: int,
+        page: int = Query(1, ge=1),
+        page_size: int = Query(20, ge=1, le=100),
+        method: Optional[str] = Query(None, description="按HTTP方法过滤"),
+        keyword: Optional[str] = Query(None, description="按URL或名称关键字过滤"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取当前用户在该项目的请求历史列表"""
+    project, current_user = project_user
+
+    query = QuickDebugHistory.filter(project_id=project_id, user_id=current_user.id)
+    if method:
+        query = query.filter(method=method.upper())
+    if keyword:
+        query = query.filter(url__icontains=keyword)
+
+    total = await query.count()
+    offset = (page - 1) * page_size
+    records = await query.offset(offset).limit(page_size).order_by('-created_at')
+
+    items = [
+        QuickDebugHistoryItem(
+            id=r.id,
+            name=r.name,
+            method=r.method,
+            url=r.url,
+            body_type=r.body_type,
+            response_status=r.response_status,
+            response_time=r.response_time,
+            created_at=r.created_at,
+        )
+        for r in records
+    ]
+    return QuickDebugHistoryListResponse(items=items, total=total)
+
+
+@router.get("/{project_id}/quick-debug/history/{history_id}", response_model=QuickDebugHistoryDetail,
+            summary="快捷调试-请求历史详情")
+async def quick_debug_history_detail(
+        project_id: int,
+        history_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取某条请求历史的完整详情（含请求参数和响应体），可用于回填表单重新发送"""
+    project, current_user = project_user
+
+    record = await QuickDebugHistory.get_or_none(id=history_id, project_id=project_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="历史记录不存在")
+
+    return QuickDebugHistoryDetail(
+        id=record.id,
+        name=record.name,
+        method=record.method,
+        url=record.url,
+        headers=record.headers,
+        params=record.params,
+        body=record.body,
+        body_type=record.body_type,
+        response_status=record.response_status,
+        response_headers=record.response_headers,
+        response_body=record.response_body,
+        response_time=record.response_time,
+        response_size=record.response_size,
+        created_at=record.created_at,
+    )
+
+
+@router.delete("/{project_id}/quick-debug/history/{history_id}", summary="快捷调试-删除历史记录")
+async def quick_debug_delete_history(
+        project_id: int,
+        history_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """删除某条请求历史"""
+    project, current_user = project_user
+    record = await QuickDebugHistory.get_or_none(id=history_id, project_id=project_id, user_id=current_user.id)
+    if not record:
+        raise HTTPException(status_code=404, detail="历史记录不存在")
+    await record.delete()
+    return {"message": "删除成功"}
+
+
+@router.delete("/{project_id}/quick-debug/history", summary="快捷调试-清空历史记录")
+async def quick_debug_clear_history(
+        project_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """清空当前用户在该项目的所有请求历史"""
+    project, current_user = project_user
+    deleted_count = await QuickDebugHistory.filter(project_id=project_id, user_id=current_user.id).delete()
+    return {"message": f"已清空 {deleted_count} 条历史记录"}
+
+
+@router.post("/{project_id}/quick-debug/parse-curl", response_model=CurlImportResponse, summary="解析cURL命令")
+async def parse_curl_command(
+        project_id: int,
+        req: CurlImportRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """解析cURL命令字符串，返回结构化的请求参数（可回填到调试界面）"""
+    try:
+        result = _parse_curl_command(req.curl_command)
+        return CurlImportResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"cURL解析失败: {str(e)}")
+
+
+@router.post("/{project_id}/quick-debug/export-curl", response_model=CurlExportResponse,
+             summary="导出为cURL命令")
+async def export_as_curl(
+        project_id: int,
+        req: QuickDebugRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """根据请求参数生成cURL命令字符串"""
+    curl_cmd = _build_curl_command(
+        method=req.method,
+        url=req.url,
+        headers=req.headers,
+        params=req.params,
+        body=req.body,
+        body_type=req.body_type,
+    )
+    return CurlExportResponse(curl_command=curl_cmd)
+
+
+@router.post("/{project_id}/quick-debug/save-as-interface", summary="快捷调试结果保存为接口")
+async def save_debug_as_interface(
+        project_id: int,
+        req: QuickDebugRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """将快捷调试的请求保存为项目接口（从调试场景一键转为接口管理）"""
+    project, current_user = project_user
+
+    parsed = urlparse(req.url)
+    path = parsed.path or req.url
+
+    # 检查重复
+    existing = await ApiInterface.get_or_none(project_id=project_id, path=path, method=req.method.upper())
+    if existing:
+        raise HTTPException(status_code=400, detail="该路径和方法的接口已存在")
+
+    # 构建parameters
+    parameters = {}
+    if req.params:
+        parameters = {"query": {k: {"type": "string", "example": v} for k, v in req.params.items()}}
+
+    # 构建request_body
+    request_body = {}
+    if req.body:
+        request_body = {"content_type": req.body_type, "example": req.body}
+
+    new_interface = await ApiInterface.create(
+        project_id=project_id,
+        method=req.method.upper(),
+        path=path,
+        summary=req.name or f"{req.method.upper()} {path}",
+        parameters=parameters,
+        request_body=request_body,
+        responses={},
+    )
+
+    return {
+        "message": "已保存为接口",
+        "interface_id": new_interface.id,
+        "method": new_interface.method,
+        "path": new_interface.path,
+    }
+
+
+# ==================== Phase 2: 定时任务 / CI触发 ====================
+
+@router.post("/{project_id}/scheduled-tasks", response_model=ScheduledTaskResponse, summary="创建定时任务")
+async def create_scheduled_task(
+        project_id: int,
+        req: ScheduledTaskCreateRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """创建定时/CI触发执行任务"""
+    project, current_user = project_user
+
+    # 验证测试任务存在
+    test_task = await TestTask.get_or_none(id=req.test_task_id, project_id=project_id)
+    if not test_task:
+        raise HTTPException(status_code=404, detail="关联的测试任务不存在")
+
+    env = await TestEnvironment.get_or_none(id=req.environment_id, project_id=project_id)
+    if not env:
+        raise HTTPException(status_code=404, detail="测试环境不存在")
+
+    # 计算下次执行时间
+    next_run = _calc_next_run(req.cron_expression) if req.cron_expression and req.task_type == 'cron' else None
+
+    task = await ScheduledTask.create(
+        name=req.name,
+        task_type=req.task_type,
+        cron_expression=req.cron_expression,
+        test_task_id=req.test_task_id,
+        environment_id=req.environment_id,
+        is_active=req.is_active,
+        next_run_at=next_run,
+        project_id=project_id,
+        creator_id=current_user.id,
+    )
+
+    return ScheduledTaskResponse(
+        id=task.id,
+        name=task.name,
+        task_type=task.task_type,
+        cron_expression=task.cron_expression,
+        test_task_id=task.test_task_id,
+        test_task_name=test_task.task_name,
+        environment_id=task.environment_id,
+        environment_name=env.name,
+        is_active=task.is_active,
+        last_run_at=task.last_run_at,
+        next_run_at=task.next_run_at,
+        created_at=task.created_at,
+    )
+
+
+def _calc_next_run(cron_expr: str) -> Optional[datetime]:
+    """简单计算下次执行时间（支持基本的cron格式）"""
+    try:
+        # 简单实现：解析 minute hour 部分
+        parts = cron_expr.strip().split()
+        if len(parts) < 5:
+            return None
+        minute, hour = parts[0], parts[1]
+        now = datetime.now()
+        if minute.isdigit() and hour.isdigit():
+            target = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
+            if target <= now:
+                from datetime import timedelta
+                target += timedelta(days=1)
+            return target
+    except Exception:
+        pass
+    return None
+
+
+@router.get("/{project_id}/scheduled-tasks", response_model=ScheduledTaskListResponse, summary="获取定时任务列表")
+async def list_scheduled_tasks(
+        project_id: int,
+        page: int = Query(1, ge=1),
+        page_size: int = Query(20, ge=1, le=100),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取项目的定时任务列表"""
+    project, current_user = project_user
+
+    query = ScheduledTask.filter(project_id=project_id)
+    total = await query.count()
+    offset = (page - 1) * page_size
+    tasks = await query.offset(offset).limit(page_size).order_by('-created_at')
+
+    items = []
+    for t in tasks:
+        test_task = await TestTask.get_or_none(id=t.test_task_id)
+        env = await TestEnvironment.get_or_none(id=t.environment_id)
+        items.append(ScheduledTaskResponse(
+            id=t.id,
+            name=t.name,
+            task_type=t.task_type,
+            cron_expression=t.cron_expression,
+            test_task_id=t.test_task_id,
+            test_task_name=test_task.task_name if test_task else None,
+            environment_id=t.environment_id,
+            environment_name=env.name if env else None,
+            is_active=t.is_active,
+            last_run_at=t.last_run_at,
+            next_run_at=t.next_run_at,
+            created_at=t.created_at,
+        ))
+
+    return ScheduledTaskListResponse(items=items, total=total)
+
+
+@router.put("/{project_id}/scheduled-tasks/{task_id}", response_model=ScheduledTaskResponse, summary="更新定时任务")
+async def update_scheduled_task(
+        project_id: int,
+        task_id: int,
+        req: ScheduledTaskUpdateRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """更新定时任务配置"""
+    project, current_user = project_user
+
+    task = await ScheduledTask.get_or_none(id=task_id, project_id=project_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="定时任务不存在")
+
+    update_data = {}
+    if req.name is not None:
+        update_data['name'] = req.name
+    if req.task_type is not None:
+        update_data['task_type'] = req.task_type
+    if req.cron_expression is not None:
+        update_data['cron_expression'] = req.cron_expression
+        update_data['next_run_at'] = _calc_next_run(req.cron_expression)
+    if req.test_task_id is not None:
+        tt = await TestTask.get_or_none(id=req.test_task_id, project_id=project_id)
+        if not tt:
+            raise HTTPException(status_code=404, detail="关联的测试任务不存在")
+        update_data['test_task_id'] = req.test_task_id
+    if req.environment_id is not None:
+        env = await TestEnvironment.get_or_none(id=req.environment_id, project_id=project_id)
+        if not env:
+            raise HTTPException(status_code=404, detail="测试环境不存在")
+        update_data['environment_id'] = req.environment_id
+    if req.is_active is not None:
+        update_data['is_active'] = req.is_active
+
+    if update_data:
+        await task.update_from_dict(update_data)
+        await task.save()
+
+    # 重新获取
+    task = await ScheduledTask.get(id=task_id)
+    test_task = await TestTask.get_or_none(id=task.test_task_id)
+    env = await TestEnvironment.get_or_none(id=task.environment_id)
+
+    return ScheduledTaskResponse(
+        id=task.id,
+        name=task.name,
+        task_type=task.task_type,
+        cron_expression=task.cron_expression,
+        test_task_id=task.test_task_id,
+        test_task_name=test_task.task_name if test_task else None,
+        environment_id=task.environment_id,
+        environment_name=env.name if env else None,
+        is_active=task.is_active,
+        last_run_at=task.last_run_at,
+        next_run_at=task.next_run_at,
+        created_at=task.created_at,
+    )
+
+
+@router.delete("/{project_id}/scheduled-tasks/{task_id}", summary="删除定时任务")
+async def delete_scheduled_task(
+        project_id: int,
+        task_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """删除定时任务"""
+    project, current_user = project_user
+    task = await ScheduledTask.get_or_none(id=task_id, project_id=project_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="定时任务不存在")
+    await task.delete()
+    return {"message": "删除成功"}
+
+
+async def _collect_task_cases(test_task_id: int):
+    """从测试任务中收集所有关联的测试用例ID"""
+    # 通过 TestTask -> TaskSuiteRelation -> TestSuite -> SuiteCaseRelation -> ApiTestCase
+    suite_relations = await TaskSuiteRelation.filter(task_id=test_task_id).order_by('suite_order')
+    all_case_ids = []
+    suite_info = []
+    for sr in suite_relations:
+        case_relations = await SuiteCaseRelation.filter(suite_id=sr.suite_id).order_by('case_order')
+        case_ids = [cr.case_id for cr in case_relations]
+        all_case_ids.extend(case_ids)
+        suite_info.append({"suite_id": sr.suite_id, "case_ids": case_ids})
+    return all_case_ids, suite_info
+
+
+@router.post("/{project_id}/scheduled-tasks/{task_id}/trigger", response_model=CiTriggerResponse,
+             summary="手动/CI触发执行")
+async def trigger_task_execution(
+        project_id: int,
+        task_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """手动触发定时任务立即执行一次"""
+    project, current_user = project_user
+
+    task = await ScheduledTask.get_or_none(id=task_id, project_id=project_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="定时任务不存在")
+
+    test_task = await TestTask.get_or_none(id=task.test_task_id)
+    if not test_task:
+        raise HTTPException(status_code=404, detail="关联的测试任务不存在")
+
+    all_case_ids, suite_info = await _collect_task_cases(test_task.id)
+    if not all_case_ids:
+        raise HTTPException(status_code=400, detail="测试任务没有关联用例")
+
+    # 创建执行记录
+    _now = datetime.now(timezone.utc)
+    task_run = await TestTaskRun.create(
+        task_id=test_task.id,
+        status='running',
+        total_suites=len(suite_info),
+        total_cases=len(all_case_ids),
+        passed_cases=0,
+        failed_cases=0,
+        skipped_cases=0,
+        start_time=_now,
+    )
+
+    # 更新定时任务最后执行时间
+    task.last_run_at = _now
+    if task.cron_expression:
+        task.next_run_at = _calc_next_run(task.cron_expression)
+    await task.save()
+
+    # 异步执行
+    asyncio.create_task(_execute_task_run(task_run.id, suite_info, task.environment_id, project_id))
+
+    return CiTriggerResponse(
+        task_run_id=task_run.id,
+        status='running',
+        message=f"已触发执行，共 {len(all_case_ids)} 个用例",
+    )
+
+
+@router.post("/{project_id}/ci-trigger", response_model=CiTriggerResponse, summary="CI Webhook触发接口")
+async def ci_webhook_trigger(
+        project_id: int,
+        req: CiTriggerRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """CI/CD流水线通过Webhook调用此接口来触发测试执行"""
+    project, current_user = project_user
+
+    test_task = await TestTask.get_or_none(id=req.task_id, project_id=project_id)
+    if not test_task:
+        scheduled = await ScheduledTask.get_or_none(id=req.task_id, project_id=project_id)
+        if scheduled:
+            test_task = await TestTask.get_or_none(id=scheduled.test_task_id)
+        if not test_task:
+            raise HTTPException(status_code=404, detail="找不到对应的测试任务")
+
+    all_case_ids, suite_info = await _collect_task_cases(test_task.id)
+    if not all_case_ids:
+        raise HTTPException(status_code=400, detail="测试任务没有关联用例")
+
+    task_run = await TestTaskRun.create(
+        task_id=test_task.id,
+        status='running',
+        total_suites=len(suite_info),
+        total_cases=len(all_case_ids),
+        passed_cases=0,
+        failed_cases=0,
+        skipped_cases=0,
+        start_time=datetime.now(timezone.utc),
+    )
+
+    asyncio.create_task(_execute_task_run(task_run.id, suite_info, 0, project_id))
+
+    return CiTriggerResponse(
+        task_run_id=task_run.id,
+        status='running',
+        message=f"CI触发执行成功，共 {len(all_case_ids)} 个用例",
+    )
+
+
+async def _execute_task_run(task_run_id: int, suite_info: list, environment_id: int, project_id: int):
+    """异步执行测试任务（Phase 3：并行执行 + Webhook通知）"""
+    from api_case_run.execute import TestExecutor
+
+    total_passed = 0
+    total_failed = 0
+    total_skipped = 0
+
+    # 获取环境配置
+    env_vars = {}
+    if environment_id:
+        env_configs = await TestEnvironmentConfig.filter(environment_id=environment_id).all()
+        for cfg in env_configs:
+            env_vars[cfg.name] = cfg.value
+
+    # 获取数据库配置
+    db_configs = []
+    if environment_id:
+        env_dbs = await TestEnvironmentDb.filter(environment_id=environment_id).all()
+        for db in env_dbs:
+            try:
+                db_configs.append({
+                    "name": db.name,
+                    "type": db.type,
+                    "config": json.loads(db.config) if isinstance(db.config, str) else db.config
+                })
+            except Exception:
+                pass
+
+    for si in suite_info:
+        suite_id = si["suite_id"]
+        case_ids = si["case_ids"]
+
+        # 创建套件运行记录
+        suite_run = await TestSuiteRun.create(
+            suite_id=suite_id,
+            run_task_id=task_run_id,
+            status='running',
+            total_cases=len(case_ids),
+            start_time=datetime.now(timezone.utc),
+        )
+
+        suite_passed = 0
+        suite_failed = 0
+        suite_skipped = 0
+        suite_error = 0
+
+        # Phase 3: 并行执行用例（最多5个并发）
+        semaphore = asyncio.Semaphore(5)
+        results_lock = asyncio.Lock()
+
+        async def run_single_case(case_id):
+            nonlocal suite_passed, suite_failed, suite_skipped, suite_error
+            async with semaphore:
+                test_case = await ApiTestCase.get_or_none(id=case_id)
+                if not test_case:
+                    async with results_lock:
+                        suite_skipped += 1
+                    return
+
+                try:
+                    # 构建用例数据（兼容现有executor格式）
+                    case_data = {
+                        "id": test_case.id,
+                        "name": test_case.name,
+                        "preconditions": test_case.preconditions or [],
+                        "request": test_case.request or {},
+                        "assertions": test_case.assertions or {},
+                    }
+
+                    # 在线程中执行同步的TestExecutor
+                    loop = asyncio.get_event_loop()
+                    executor = TestExecutor(env_vars, db_configs)
+                    result = await loop.run_in_executor(None, executor.execute_test_case, case_data)
+
+                    # 保存用例执行记录
+                    await ApiCaseRun.create(
+                        suite_run_id=suite_run.id,
+                        api_case_id=test_case.id,
+                        case_name=test_case.name,
+                        status=result.status,
+                        error_message=result.error_message,
+                        traceback=result.traceback,
+                        start_time=datetime.fromtimestamp(result.start_time) if result.start_time else None,
+                        end_time=datetime.fromtimestamp(result.end_time) if result.end_time else None,
+                        duration=result.duration,
+                        logs=result.logs if hasattr(result, 'logs') else None,
+                        api_requests_info=result.api_requests_info if hasattr(result, 'api_requests_info') else None,
+                    )
+
+                    async with results_lock:
+                        if result.status == 'success':
+                            suite_passed += 1
+                        elif result.status == 'failed':
+                            suite_failed += 1
+                        elif result.status == 'skip':
+                            suite_skipped += 1
+                        else:
+                            suite_error += 1
+
+                except Exception as e:
+                    await ApiCaseRun.create(
+                        suite_run_id=suite_run.id,
+                        api_case_id=case_id,
+                        case_name=test_case.name if test_case else f"case_{case_id}",
+                        status='error',
+                        error_message=str(e),
+                        traceback=traceback.format_exc(),
+                    )
+                    async with results_lock:
+                        suite_error += 1
+
+        # 并行执行所有用例
+        await asyncio.gather(*[run_single_case(cid) for cid in case_ids])
+
+        # 更新套件运行记录
+        suite_run.status = 'completed'
+        suite_run.passed_cases = suite_passed
+        suite_run.failed_cases = suite_failed
+        suite_run.skipped_cases = suite_skipped
+        suite_run.error_cases = suite_error
+        suite_run.end_time = datetime.now(timezone.utc)
+        if suite_run.start_time:
+            suite_run.duration = (suite_run.end_time - suite_run.start_time).total_seconds()
+        await suite_run.save()
+
+        total_passed += suite_passed
+        total_failed += suite_failed + suite_error
+        total_skipped += suite_skipped
+
+    # 更新任务运行记录
+    task_run = await TestTaskRun.get(id=task_run_id)
+    task_run.status = 'completed'
+    task_run.passed_cases = total_passed
+    task_run.failed_cases = total_failed
+    task_run.skipped_cases = total_skipped
+    task_run.end_time = datetime.now(timezone.utc)
+    if task_run.start_time:
+        task_run.duration = (task_run.end_time - task_run.start_time).total_seconds()
+    await task_run.save()
+
+    # Phase 3: 发送Webhook通知
+    await _send_webhook_notifications(project_id, task_run)
+
+
+@router.post("/{project_id}/curl-to-interface", summary="cURL导入为接口")
+async def curl_import_as_interface(
+        project_id: int,
+        req: CurlToInterfaceRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """将cURL命令解析并直接创建为项目接口"""
+    project, current_user = project_user
+
+    try:
+        parsed = _parse_curl_command(req.curl_command)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"cURL解析失败: {str(e)}")
+
+    parsed_url = urlparse(parsed['url'])
+    path = parsed_url.path or parsed['url']
+
+    existing = await ApiInterface.get_or_none(project_id=project_id, path=path, method=parsed['method'])
+    if existing:
+        raise HTTPException(status_code=400, detail="该路径和方法的接口已存在")
+
+    parameters = {}
+    if parsed['params']:
+        parameters = {"query": {k: {"type": "string", "example": v} for k, v in parsed['params'].items()}}
+
+    request_body = {}
+    if parsed['body']:
+        request_body = {"content_type": parsed['body_type'], "example": parsed['body']}
+
+    new_interface = await ApiInterface.create(
+        project_id=project_id,
+        method=parsed['method'],
+        path=path,
+        summary=req.summary or f"{parsed['method']} {path}",
+        parameters=parameters,
+        request_body=request_body,
+        responses={},
+    )
+
+    return {
+        "message": "cURL导入为接口成功",
+        "interface_id": new_interface.id,
+        "method": new_interface.method,
+        "path": new_interface.path,
+        "summary": new_interface.summary,
+    }
+
+
+# ==================== Phase 3: Webhook通知配置 ====================
+
+@router.post("/{project_id}/webhook-configs", response_model=WebhookConfigResponse, summary="创建Webhook通知配置")
+async def create_webhook_config(
+        project_id: int,
+        req: WebhookConfigCreateRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """创建Webhook通知配置（飞书/钉钉/自定义）"""
+    project, current_user = project_user
+
+    config = await WebhookConfig.create(
+        name=req.name,
+        webhook_url=req.webhook_url,
+        webhook_type=req.webhook_type,
+        trigger_on=req.trigger_on,
+        is_active=req.is_active,
+        project_id=project_id,
+    )
+
+    return WebhookConfigResponse(
+        id=config.id,
+        name=config.name,
+        webhook_url=config.webhook_url,
+        webhook_type=config.webhook_type,
+        trigger_on=config.trigger_on,
+        is_active=config.is_active,
+        created_at=config.created_at,
+    )
+
+
+@router.get("/{project_id}/webhook-configs", response_model=WebhookConfigListResponse,
+            summary="获取Webhook配置列表")
+async def list_webhook_configs(
+        project_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取项目的所有Webhook通知配置"""
+    project, current_user = project_user
+
+    configs = await WebhookConfig.filter(project_id=project_id).order_by('-created_at')
+    items = [
+        WebhookConfigResponse(
+            id=c.id,
+            name=c.name,
+            webhook_url=c.webhook_url,
+            webhook_type=c.webhook_type,
+            trigger_on=c.trigger_on,
+            is_active=c.is_active,
+            created_at=c.created_at,
+        )
+        for c in configs
+    ]
+    return WebhookConfigListResponse(items=items, total=len(items))
+
+
+@router.put("/{project_id}/webhook-configs/{config_id}", response_model=WebhookConfigResponse,
+            summary="更新Webhook配置")
+async def update_webhook_config(
+        project_id: int,
+        config_id: int,
+        req: WebhookConfigUpdateRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """更新Webhook通知配置"""
+    project, current_user = project_user
+
+    config = await WebhookConfig.get_or_none(id=config_id, project_id=project_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Webhook配置不存在")
+
+    update_data = {}
+    if req.name is not None:
+        update_data['name'] = req.name
+    if req.webhook_url is not None:
+        update_data['webhook_url'] = req.webhook_url
+    if req.webhook_type is not None:
+        update_data['webhook_type'] = req.webhook_type
+    if req.trigger_on is not None:
+        update_data['trigger_on'] = req.trigger_on
+    if req.is_active is not None:
+        update_data['is_active'] = req.is_active
+
+    if update_data:
+        await config.update_from_dict(update_data)
+        await config.save()
+
+    config = await WebhookConfig.get(id=config_id)
+    return WebhookConfigResponse(
+        id=config.id,
+        name=config.name,
+        webhook_url=config.webhook_url,
+        webhook_type=config.webhook_type,
+        trigger_on=config.trigger_on,
+        is_active=config.is_active,
+        created_at=config.created_at,
+    )
+
+
+@router.delete("/{project_id}/webhook-configs/{config_id}", summary="删除Webhook配置")
+async def delete_webhook_config(
+        project_id: int,
+        config_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """删除Webhook通知配置"""
+    project, current_user = project_user
+    config = await WebhookConfig.get_or_none(id=config_id, project_id=project_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Webhook配置不存在")
+    await config.delete()
+    return {"message": "删除成功"}
+
+
+@router.post("/{project_id}/webhook-configs/{config_id}/test", summary="测试Webhook连通性")
+async def test_webhook_config(
+        project_id: int,
+        config_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """发送测试消息验证Webhook是否连通"""
+    project, current_user = project_user
+
+    config = await WebhookConfig.get_or_none(id=config_id, project_id=project_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Webhook配置不存在")
+
+    try:
+        test_msg = _build_webhook_message(
+            webhook_type=config.webhook_type,
+            title="🔔 Webhook连通性测试",
+            content=f"项目: {project.name}\n这是一条测试消息，如果您看到此消息，说明Webhook配置正确。",
+        )
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(config.webhook_url, json=test_msg)
+
+        if resp.status_code == 200:
+            return {"success": True, "message": "Webhook测试消息发送成功"}
+        else:
+            return {"success": False, "message": f"发送失败，状态码: {resp.status_code}，响应: {resp.text[:200]}"}
+    except Exception as e:
+        return {"success": False, "message": f"发送失败: {str(e)}"}
+
+
+def _build_webhook_message(webhook_type: str, title: str, content: str) -> dict:
+    """根据Webhook类型构建消息体"""
+    if webhook_type == 'feishu':
+        return {
+            "msg_type": "interactive",
+            "card": {
+                "header": {
+                    "title": {"tag": "plain_text", "content": title},
+                    "template": "blue",
+                },
+                "elements": [
+                    {"tag": "div", "text": {"tag": "lark_md", "content": content}},
+                ],
+            },
+        }
+    elif webhook_type == 'dingtalk':
+        return {
+            "msgtype": "markdown",
+            "markdown": {"title": title, "text": f"### {title}\n\n{content}"},
+        }
+    else:
+        # 自定义格式
+        return {"title": title, "content": content}
+
+
+async def _send_webhook_notifications(project_id: int, execution):
+    """执行完成后发送Webhook通知"""
+    configs = await WebhookConfig.filter(project_id=project_id, is_active=True)
+
+    for config in configs:
+        # 检查触发条件
+        should_send = False
+        if config.trigger_on == 'always':
+            should_send = True
+        elif config.trigger_on == 'on_failure' and execution.failed_cases > 0:
+            should_send = True
+        elif config.trigger_on == 'on_success' and execution.failed_cases == 0:
+            should_send = True
+
+        if not should_send:
+            continue
+
+        # 构建通知内容
+        status_icon = "✅" if execution.failed_cases == 0 else "❌"
+        title = f"{status_icon} 测试执行完成通知"
+        content = (
+            f"**执行ID**: {execution.id}\n"
+            f"**总用例数**: {execution.total_cases}\n"
+            f"**通过**: {execution.passed_cases}  |  **失败**: {execution.failed_cases}  |  **跳过**: {execution.skipped_cases}\n"
+            f"**通过率**: {round(execution.passed_cases / max(execution.total_cases, 1) * 100, 1)}%\n"
+        )
+
+        msg = _build_webhook_message(config.webhook_type, title, content)
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(config.webhook_url, json=msg)
+        except Exception:
+            pass  # 通知失败不影响主流程
+
+
+# ==================== Phase 3: 增强执行报告 ====================
+
+@router.get("/{project_id}/execution-report/{run_id}", summary="获取增强执行报告")
+async def get_enhanced_execution_report(
+        project_id: int,
+        run_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取执行报告的增强版本，包含详细统计、趋势数据和用例结果"""
+    project, current_user = project_user
+
+    task_run = await TestTaskRun.get_or_none(id=run_id)
+    if not task_run:
+        raise HTTPException(status_code=404, detail="执行记录不存在")
+
+    # 获取套件运行记录
+    suite_runs = await TestSuiteRun.filter(run_task_id=run_id).order_by('id')
+
+    # 获取所有用例执行记录
+    status_distribution = {}
+    response_times = []
+    cases = []
+    suites = []
+
+    for sr in suite_runs:
+        # 获取套件名称
+        suite = await TestSuite.get_or_none(id=sr.suite_id)
+        suite_name = suite.suite_name if suite else f"套件 {sr.suite_id}"
+
+        suites.append({
+            "suite_id": sr.suite_id,
+            "suite_name": suite_name,
+            "total": sr.total_cases or 0,
+            "passed": sr.passed_cases or 0,
+            "failed": (sr.failed_cases or 0) + (sr.error_cases or 0),
+            "skipped": sr.skipped_cases or 0,
+            "duration": round((sr.duration or 0) * 1000, 2),  # 转毫秒
+        })
+
+        case_runs = await ApiCaseRun.filter(suite_run_id=sr.id).order_by('id')
+        for cr in case_runs:
+            s = cr.status or 'unknown'
+            status_distribution[s] = status_distribution.get(s, 0) + 1
+            duration_ms = round((cr.duration or 0) * 1000, 2)
+            if cr.duration:
+                response_times.append(duration_ms)
+
+            # 从 api_requests_info 提取第一条请求信息给前端展示
+            request_info = None
+            if cr.api_requests_info and isinstance(cr.api_requests_info, list) and len(cr.api_requests_info) > 0:
+                first_req = cr.api_requests_info[0]
+                request_info = {
+                    "method": first_req.get("method", ""),
+                    "url": first_req.get("url", ""),
+                    "response_status": first_req.get("status_code"),
+                }
+
+            cases.append({
+                "case_id": cr.api_case_id,
+                "case_name": cr.case_name,
+                "status": cr.status,
+                "duration": duration_ms,
+                "error_message": cr.error_message,
+                "request_info": request_info,
+                "api_requests_info": cr.api_requests_info,
+            })
+
+    # 性能统计
+    perf_stats = {}
+    if response_times:
+        sorted_times = sorted(response_times)
+        perf_stats = {
+            "avg_response_time": round(sum(response_times) / len(response_times), 2),
+            "min_response_time": round(min(response_times), 2),
+            "max_response_time": round(max(response_times), 2),
+            "p95_response_time": round(sorted_times[int(len(sorted_times) * 0.95)] if sorted_times else 0, 2),
+        }
+
+    # 获取历史趋势（最近10次执行）
+    history_runs = await TestTaskRun.filter(
+        task_id=task_run.task_id, status='completed'
+    ).order_by('-id').limit(10)
+
+    trend_data = []
+    for hr in reversed(list(history_runs)):
+        trend_data.append({
+            "run_id": hr.id,
+            "total": hr.total_cases,
+            "passed": hr.passed_cases,
+            "failed": hr.failed_cases,
+            "pass_rate": round(hr.passed_cases / max(hr.total_cases, 1) * 100, 1),
+            "created_at": hr.created_at.isoformat() if hr.created_at else None,
+        })
+
+    return {
+        # 前端需要的结构化格式
+        "summary": {
+            "total_cases": task_run.total_cases or 0,
+            "passed": task_run.passed_cases or 0,
+            "failed": task_run.failed_cases or 0,
+            "skipped": task_run.skipped_cases or 0,
+            "total_duration": round((task_run.duration or 0) * 1000, 2),  # 毫秒
+        },
+        "suites": suites,
+        "cases": cases,
+        # 附加信息
+        "run_id": task_run.id,
+        "task_id": task_run.task_id,
+        "status": task_run.status,
+        "pass_rate": round(task_run.passed_cases / max(task_run.total_cases, 1) * 100, 1),
+        "start_time": task_run.start_time.isoformat() if task_run.start_time else None,
+        "end_time": task_run.end_time.isoformat() if task_run.end_time else None,
+        "duration": task_run.duration,
+        "status_distribution": status_distribution,
+        "performance_stats": perf_stats,
+        "trend_data": trend_data,
+    }

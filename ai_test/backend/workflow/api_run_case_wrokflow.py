@@ -188,9 +188,10 @@ class ApiRunCaseGeneratorWorkFlow:
             # 插入接口测试用例 - 使用正确的字段名
             insert_sql = """
             INSERT INTO api_test_case (
-                base_case_id, name, description, interface_name,
-                preconditions, request, assertions, status, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                base_case_id, name, description, interface_name, type,
+                preconditions, request, assertions, status, generation_count,
+                created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
 
             current_time = datetime.now()
@@ -200,10 +201,12 @@ class ApiRunCaseGeneratorWorkFlow:
                 case_name,
                 case_description,
                 case_interface,
+                'api',
                 preconditions_json,
                 request_json,
                 assertions_json,
                 status,
+                1,
                 current_time,
                 current_time
             ))

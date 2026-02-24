@@ -56,11 +56,11 @@
             </el-menu-item>
             <el-menu-item index="/schedule/daily-report">
               <el-icon><Edit /></el-icon>
-              <template #title>测试日报</template>
+              <template #title>同步进度</template>
             </el-menu-item>
             <el-menu-item index="/schedule/feishu">
               <el-icon><ChatDotRound /></el-icon>
-              <template #title>飞书群集成</template>
+              <template #title>需求群管理</template>
             </el-menu-item>
           </el-sub-menu>
 
@@ -77,6 +77,10 @@
             <el-menu-item index="/function-test/case">
               <el-icon><List /></el-icon>
               <template #title>功能用例</template>
+            </el-menu-item>
+            <el-menu-item index="/function-test/defect">
+              <el-icon><Warning /></el-icon>
+              <template #title>缺陷管理</template>
             </el-menu-item>
           </el-sub-menu>
 
@@ -109,6 +113,18 @@
             <el-menu-item index="/api-test/plan">
               <el-icon><Calendar /></el-icon>
               <template #title>测试计划</template>
+            </el-menu-item>
+            <el-menu-item index="/api-test/quick-debug">
+              <el-icon><Lightning /></el-icon>
+              <template #title>快捷调试</template>
+            </el-menu-item>
+            <el-menu-item index="/api-test/scheduled-tasks">
+              <el-icon><Timer /></el-icon>
+              <template #title>定时任务</template>
+            </el-menu-item>
+            <el-menu-item index="/api-test/webhook-config">
+              <el-icon><Bell /></el-icon>
+              <template #title>通知配置</template>
             </el-menu-item>
           </el-sub-menu>
 
@@ -183,7 +199,7 @@
               </span>
               <template #dropdown>
                 <el-dropdown-menu>
-
+                  <el-dropdown-item command="profile_settings">个人设置</el-dropdown-item>
                   <el-dropdown-item command="change_password">修改密码</el-dropdown-item>
                   <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
                 </el-dropdown-menu>
@@ -222,6 +238,127 @@
             </span>
           </template>
         </el-dialog>
+
+        <!-- 个人设置弹窗 -->
+        <el-dialog v-model="profileDialogVisible" title="个人设置" width="560px" :close-on-click-modal="false">
+          <el-form :model="profileForm" label-width="140px">
+            <el-divider content-position="left">基本信息</el-divider>
+            <el-form-item label="用户名">
+              <el-input :value="userStore.user?.username" disabled />
+            </el-form-item>
+            <el-form-item label="真实姓名">
+              <el-input v-model="profileForm.real_name" placeholder="请输入真实姓名" />
+            </el-form-item>
+            <el-form-item label="邮箱">
+              <el-input v-model="profileForm.email" placeholder="请输入邮箱" />
+            </el-form-item>
+            <el-form-item label="手机号">
+              <el-input v-model="profileForm.phone" placeholder="请输入手机号" />
+            </el-form-item>
+
+            <el-divider content-position="left">飞书项目集成</el-divider>
+            <el-form-item label="飞书项目 User Key">
+              <!-- 已绑定状态 -->
+              <div v-if="feishuBound" class="feishu-bound-info">
+                <el-tag type="success" size="large" effect="plain" style="margin-bottom: 8px;">
+                  ✅ 已绑定飞书账号
+                </el-tag>
+                <div class="bound-detail" v-if="feishuBoundName">
+                  <span class="bound-label">飞书账号：</span>
+                  <span class="bound-value">{{ feishuBoundName }}</span>
+                </div>
+                <div class="bound-detail">
+                  <span class="bound-label">User Key：</span>
+                  <span class="bound-value bound-key">{{ profileForm.feishu_user_key }}</span>
+                </div>
+                <el-button type="danger" plain size="small" @click="unbindFeishuKey" style="margin-top: 8px;">
+                  解除绑定
+                </el-button>
+              </div>
+              <!-- 未绑定状态 -->
+              <div v-else>
+                <div style="display: flex; gap: 8px;">
+                  <el-input
+                    v-model="feishuKeyInput"
+                    placeholder="请输入飞书项目 User Key"
+                    clearable
+                    style="flex: 1;"
+                  />
+                  <el-button
+                    type="primary"
+                    :loading="feishuKeyVerifying"
+                    @click="verifyFeishuUserKey"
+                    :disabled="!feishuKeyInput?.trim()"
+                  >
+                    验证绑定
+                  </el-button>
+                </div>
+                <div class="form-tip">
+                  绑定后将以你的飞书身份操作飞书项目数据（创建缺陷、查看需求等）。
+                  <el-link type="primary" :underline="false" @click="showUserKeyHelp = !showUserKeyHelp" style="margin-left: 4px;">
+                    如何获取 User Key？
+                  </el-link>
+                </div>
+                <el-alert v-if="showUserKeyHelp" type="info" :closable="false" style="margin-top: 8px;">
+                  <template #title>
+                    <div style="line-height: 1.8; font-size: 13px;">
+                      <p><strong>获取步骤：</strong></p>
+                      <p>1. 用浏览器打开 <el-link type="primary" href="https://project.feishu.cn" target="_blank">飞书项目</el-link></p>
+                      <p>2. 按 <code>F12</code> 打开开发者工具 → 切到 <code>Network</code> 标签</p>
+                      <p>3. 在页面上点击任意操作（如打开一个需求）</p>
+                      <p>4. 在 Network 中找到任意请求的请求头里的 <code>X-User-Key</code> 值</p>
+                    </div>
+                  </template>
+                </el-alert>
+              </div>
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <span class="dialog-footer">
+              <el-button @click="profileDialogVisible = false">取消</el-button>
+              <el-button type="primary" :loading="profileSaving" @click="saveProfile">保存</el-button>
+            </span>
+          </template>
+        </el-dialog>
+
+        <!-- 飞书账号绑定确认弹窗 -->
+        <el-dialog v-model="feishuConfirmVisible" title="确认绑定飞书账号" width="460px" :close-on-click-modal="false" append-to-body>
+          <div class="feishu-confirm-content">
+            <div class="confirm-icon">🔗</div>
+            <p class="confirm-title">即将绑定以下飞书项目账号</p>
+            <el-descriptions :column="1" border size="default" style="margin-top: 16px;">
+              <el-descriptions-item label="飞书账号" v-if="feishuVerifyResult.feishu_name">
+                <el-tag type="primary" effect="plain">{{ feishuVerifyResult.feishu_name }}</el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="飞书邮箱" v-if="feishuVerifyResult.feishu_email">
+                {{ feishuVerifyResult.feishu_email }}
+              </el-descriptions-item>
+              <el-descriptions-item label="项目空间">
+                {{ feishuVerifyResult.project_key || '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="可访问需求数">
+                {{ feishuVerifyResult.accessible_stories ?? '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="User Key">
+                <span style="font-family: monospace; font-size: 12px; color: #606266;">{{ feishuKeyInput }}</span>
+              </el-descriptions-item>
+            </el-descriptions>
+            <el-alert
+              v-if="!feishuVerifyResult.feishu_name"
+              type="warning"
+              :closable="false"
+              style="margin-top: 12px;"
+              description="未能获取到飞书账号名称（可能是权限限制），但 User Key 验证已通过，可以正常使用。"
+            />
+            <p class="confirm-hint">绑定后，系统将以此账号身份调用飞书项目 API。</p>
+          </div>
+          <template #footer>
+            <span class="dialog-footer">
+              <el-button @click="feishuConfirmVisible = false">取消</el-button>
+              <el-button type="primary" :loading="feishuKeyBinding" @click="confirmBindFeishuKey">确认绑定</el-button>
+            </span>
+          </template>
+        </el-dialog>
       </el-container>
     </el-container>
   </div>
@@ -231,9 +368,9 @@
 import { computed, ref, onMounted, watch, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore, useUserStore, useProjectStore, useTabStore } from '../stores'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getProjectDetail } from '../api/project'
-import { changePassword } from '@/api/user'
+import { changePassword, getUserProfile, updateUserProfile, verifyFeishuKey } from '@/api/user'
 import TabBar from './TabBar.vue'
 
 const router = useRouter()
@@ -346,6 +483,177 @@ onMounted(() => {
   tabStore.loadFromStorage()
 })
 
+// 个人设置对话框
+const profileDialogVisible = ref(false)
+const profileSaving = ref(false)
+const showUserKeyHelp = ref(false)
+const profileForm = reactive({
+  real_name: '',
+  email: '',
+  phone: '',
+  feishu_user_key: ''
+})
+
+// 飞书绑定相关
+const feishuKeyInput = ref('')
+const feishuKeyVerifying = ref(false)
+const feishuKeyBinding = ref(false)
+const feishuConfirmVisible = ref(false)
+const feishuVerifyResult = reactive({
+  feishu_name: '',
+  feishu_email: '',
+  project_key: '',
+  accessible_stories: 0,
+})
+const feishuBoundName = ref('')  // 已绑定的飞书用户名
+
+const feishuBound = computed(() => !!profileForm.feishu_user_key)
+
+const openProfileSettings = async () => {
+  try {
+    const res = await getUserProfile()
+    const data = res.data || res
+    profileForm.real_name = data.real_name || ''
+    profileForm.email = data.email || ''
+    profileForm.phone = data.phone || ''
+    profileForm.feishu_user_key = data.feishu_user_key || ''
+  } catch (e) {
+    console.error('获取个人信息失败', e)
+    const u = userStore.user || {}
+    profileForm.real_name = u.real_name || ''
+    profileForm.email = u.email || ''
+    profileForm.phone = u.phone || ''
+    profileForm.feishu_user_key = u.feishu_user_key || ''
+  }
+  feishuKeyInput.value = ''
+  feishuBoundName.value = userStore.user?.feishu_name || ''
+  showUserKeyHelp.value = false
+  profileDialogVisible.value = true
+
+  // 如果已绑定，尝试验证获取名称
+  if (profileForm.feishu_user_key && !feishuBoundName.value) {
+    try {
+      const res = await verifyFeishuKey(profileForm.feishu_user_key)
+      const data = res.data || res
+      if (data.valid && data.feishu_name) {
+        feishuBoundName.value = data.feishu_name
+      }
+    } catch (e) { /* 静默失败 */ }
+  }
+}
+
+// 验证飞书 User Key
+const verifyFeishuUserKey = async () => {
+  const key = feishuKeyInput.value?.trim()
+  if (!key) {
+    ElMessage.warning('请输入飞书项目 User Key')
+    return
+  }
+  feishuKeyVerifying.value = true
+  try {
+    const res = await verifyFeishuKey(key)
+    const data = res.data || res
+    if (data.valid) {
+      // 验证通过，填入确认信息
+      feishuVerifyResult.feishu_name = data.feishu_name || ''
+      feishuVerifyResult.feishu_email = data.feishu_email || ''
+      feishuVerifyResult.project_key = data.project_key || ''
+      feishuVerifyResult.accessible_stories = data.accessible_stories ?? 0
+      // 弹出确认窗
+      feishuConfirmVisible.value = true
+    } else {
+      ElMessage.error(data.message || 'User Key 验证失败')
+    }
+  } catch (e) {
+    console.error('验证失败', e)
+    ElMessage.error(e?.response?.data?.detail || '验证请求失败，请检查网络')
+  } finally {
+    feishuKeyVerifying.value = false
+  }
+}
+
+// 确认绑定飞书 Key
+const confirmBindFeishuKey = async () => {
+  feishuKeyBinding.value = true
+  try {
+    const key = feishuKeyInput.value.trim()
+    const res = await updateUserProfile({ feishu_user_key: key })
+    const data = res.data || res
+    // 更新本地状态
+    profileForm.feishu_user_key = key
+    feishuBoundName.value = feishuVerifyResult.feishu_name || ''
+    userStore.setUser({
+      ...userStore.user,
+      feishu_user_key: data.feishu_user_key,
+      feishu_name: feishuVerifyResult.feishu_name || ''
+    })
+    feishuConfirmVisible.value = false
+    feishuKeyInput.value = ''
+    ElMessage.success('飞书账号绑定成功 🎉')
+  } catch (e) {
+    console.error('绑定失败', e)
+    ElMessage.error(e?.response?.data?.detail || '绑定失败')
+  } finally {
+    feishuKeyBinding.value = false
+  }
+}
+
+// 解除绑定
+const unbindFeishuKey = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '解除绑定后，将无法以你的飞书身份操作飞书项目数据。确认解除绑定吗？',
+      '解除飞书绑定',
+      { confirmButtonText: '确认解除', cancelButtonText: '取消', type: 'warning' }
+    )
+    profileSaving.value = true
+    const res = await updateUserProfile({ feishu_user_key: '' })
+    const data = res.data || res
+    profileForm.feishu_user_key = ''
+    feishuBoundName.value = ''
+    userStore.setUser({
+      ...userStore.user,
+      feishu_user_key: '',
+      feishu_name: ''
+    })
+    ElMessage.success('已解除飞书账号绑定')
+  } catch (e) {
+    if (e !== 'cancel') {
+      console.error('解绑失败', e)
+      ElMessage.error('解绑失败')
+    }
+  } finally {
+    profileSaving.value = false
+  }
+}
+
+const saveProfile = async () => {
+  profileSaving.value = true
+  try {
+    const payload = {}
+    if (profileForm.real_name) payload.real_name = profileForm.real_name
+    if (profileForm.email) payload.email = profileForm.email
+    if (profileForm.phone !== undefined) payload.phone = profileForm.phone
+
+    const res = await updateUserProfile(payload)
+    const data = res.data || res
+    userStore.setUser({
+      ...userStore.user,
+      real_name: data.real_name,
+      email: data.email,
+      phone: data.phone,
+    })
+    ElMessage.success('个人设置保存成功')
+    profileDialogVisible.value = false
+  } catch (e) {
+    console.error('保存失败', e)
+    const msg = e?.response?.data?.detail || '保存失败'
+    ElMessage.error(msg)
+  } finally {
+    profileSaving.value = false
+  }
+}
+
 // 修改密码对话框与表单
 const changePwdDialogVisible = ref(false)
 const changePwdLoading = ref(false)
@@ -377,6 +685,9 @@ const changePwdRules = {
 
 const handleCommand = (command) => {
   switch (command) {
+    case 'profile_settings':
+      openProfileSettings()
+      break
     case 'change_password':
       changePwdForm.old_password = ''
       changePwdForm.new_password = ''
@@ -590,5 +901,71 @@ const confirmChangePassword = async () => {
 
 .main-content::-webkit-scrollbar-thumb:hover {
   background: rgba(139, 92, 246, 0.7);
+}
+
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.6;
+  margin-top: 4px;
+}
+
+.form-tip code {
+  background: #f5f7fa;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+/* 飞书绑定状态 */
+.feishu-bound-info {
+  width: 100%;
+}
+
+.bound-detail {
+  font-size: 14px;
+  color: #606266;
+  line-height: 2;
+}
+
+.bound-label {
+  color: #909399;
+}
+
+.bound-value {
+  color: #303133;
+  font-weight: 500;
+}
+
+.bound-key {
+  font-family: monospace;
+  font-size: 12px;
+  background: #f5f7fa;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* 确认绑定弹窗 */
+.feishu-confirm-content {
+  text-align: center;
+}
+
+.confirm-icon {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.confirm-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #303133;
+  margin-bottom: 4px;
+}
+
+.confirm-hint {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #909399;
 }
 </style>

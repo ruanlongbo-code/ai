@@ -131,9 +131,20 @@
             <div class="detail-header">
               <el-icon class="detail-icon"><Document /></el-icon>
               <h4>请求体参数</h4>
+              <el-tag v-if="interfaceData.request_body?.content_type" size="small" type="info" effect="plain" style="margin-left:8px;">
+                {{ interfaceData.request_body.content_type }}
+              </el-tag>
             </div>
             <div class="detail-content">
-              <div v-if="interfaceData.request_body && Object.keys(interfaceData.request_body).length > 0" class="request-body-content">
+              <div v-if="requestBodyFields.length > 0" class="parameter-list">
+                <div v-for="param in requestBodyFields" :key="param.name" class="parameter-item">
+                  <div class="param-name">{{ param.name }}</div>
+                  <div class="param-type">{{ param.type || 'string' }}</div>
+                  <div class="param-required">{{ param.required ? '必填' : '可选' }}</div>
+                  <div class="param-description">{{ param.description || '-' }}</div>
+                </div>
+              </div>
+              <div v-else-if="interfaceData.request_body && Object.keys(interfaceData.request_body).length > 0" class="request-body-content">
                 <div class="json-content">
                   <pre class="json-text">{{ formatJson(interfaceData.request_body) }}</pre>
                 </div>
@@ -155,12 +166,18 @@
               <div v-if="interfaceData.responses && interfaceData.responses.length > 0" class="responses-content">
                 <div v-for="(response, index) in interfaceData.responses" :key="index" class="response-item">
                   <div class="response-header">
-                    <el-tag :type="getStatusTagType(response.status_code)">
-                      {{ response.status_code }}
+                    <el-tag :type="getStatusTagType(response.http_code || response.status_code)">
+                      {{ response.http_code || response.status_code }}
                     </el-tag>
                     <span class="response-description">{{ response.description || '-' }}</span>
+                    <el-tag v-if="response.media_type" size="small" type="info" effect="plain" style="margin-left:8px;">
+                      {{ response.media_type }}
+                    </el-tag>
                   </div>
-                  <div v-if="response.content" class="response-content">
+                  <div v-if="response.response_body && Object.keys(response.response_body).length > 0" class="response-content">
+                    <pre class="json-text">{{ formatJson(response.response_body) }}</pre>
+                  </div>
+                  <div v-else-if="response.content" class="response-content">
                     <pre class="json-text">{{ formatJson(response.content) }}</pre>
                   </div>
                 </div>
@@ -290,6 +307,17 @@ const emit = defineEmits(['update:visible', 'edit', 'test'])
 // 响应式数据
 const loading = ref(false)
 const activeTab = ref('path')
+
+// 解析请求体字段列表（兼容 body 数组和 schema 对象两种结构）
+const requestBodyFields = computed(() => {
+  const rb = props.interfaceData?.request_body
+  if (!rb) return []
+  // Swagger 2.0 body 解析结果: { content_type, body: [{ name, type, required, description }] }
+  if (Array.isArray(rb.body)) return rb.body
+  // OpenAPI 3.0 schema 解析结果: { content_type, body: [{ name, type, ... }] } 或 { schema: [...] }
+  if (Array.isArray(rb.schema)) return rb.schema
+  return []
+})
 
 // 获取方法标签类型
 const getMethodTagType = (method) => {

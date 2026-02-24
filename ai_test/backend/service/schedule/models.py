@@ -105,10 +105,7 @@ class DailyReport(Model):
     today_progress = fields.TextField(description="今日进展")
     next_plan = fields.TextField(null=True, description="明日计划")
     # 系统自动采集的数据快照
-    case_total = fields.IntField(default=0, description="用例总数")
-    case_executed = fields.IntField(default=0, description="已执行用例数")
-    case_passed = fields.IntField(default=0, description="通过用例数")
-    case_failed = fields.IntField(default=0, description="失败用例数")
+    case_execution_progress = fields.SmallIntField(default=0, description="用例执行进度百分比")
     bug_total = fields.IntField(default=0, description="Bug总数")
     bug_open = fields.IntField(default=0, description="待处理Bug数")
     bug_fixed = fields.IntField(default=0, description="已修复Bug数")
@@ -166,6 +163,56 @@ class ProgressReport(Model):
         table_description = "迭代进度报告表"
 
 
+class Defect(Model):
+    """缺陷单表 - 测试人员提交的Bug"""
+    id = fields.IntField(pk=True, description="主键ID")
+    schedule_item = fields.ForeignKeyField(
+        'models.ScheduleItem',
+        related_name='defects',
+        on_delete=fields.CASCADE,
+        description="关联排期条目（需求）"
+    )
+    title = fields.CharField(max_length=500, description="缺陷标题")
+    description = fields.TextField(description="缺陷描述")
+    defect_type = fields.CharField(
+        max_length=30, default='functional',
+        description="缺陷类型（functional=功能缺陷, ui=界面显示, performance=性能问题, compatibility=兼容性, other=其他）"
+    )
+    severity = fields.CharField(
+        max_length=10, default='P2',
+        description="严重程度（P0=阻塞, P1=严重, P2=一般, P3=轻微）"
+    )
+    defect_status = fields.CharField(
+        max_length=20, default='open',
+        description="缺陷状态（open=待处理, fixing=修复中, fixed=已修复, verified=已验证, closed=已关闭, rejected=已拒绝）"
+    )
+    assignee = fields.ForeignKeyField(
+        'models.User',
+        related_name='assigned_defects',
+        on_delete=fields.SET_NULL,
+        null=True,
+        description="经办人（开发）"
+    )
+    reporter = fields.ForeignKeyField(
+        'models.User',
+        related_name='reported_defects',
+        on_delete=fields.CASCADE,
+        description="报告人（测试）"
+    )
+    screenshots = fields.JSONField(null=True, description="截图附件列表（JSON数组）")
+    reproduce_steps = fields.TextField(null=True, description="复现步骤")
+    expected_result = fields.TextField(null=True, description="预期结果")
+    actual_result = fields.TextField(null=True, description="实际结果")
+    feishu_ticket_id = fields.CharField(max_length=200, null=True, description="飞书工单ID（如已同步）")
+    feishu_ticket_url = fields.CharField(max_length=500, null=True, description="飞书工单链接")
+    created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
+    updated_at = fields.DatetimeField(auto_now=True, description="更新时间")
+
+    class Meta:
+        table = "defect"
+        table_description = "缺陷单表"
+
+
 class FeishuWebhook(Model):
     """飞书群Webhook配置表"""
     id = fields.IntField(pk=True, description="主键ID")
@@ -178,6 +225,7 @@ class FeishuWebhook(Model):
     name = fields.CharField(max_length=100, description="群名称")
     webhook_url = fields.CharField(max_length=500, description="Webhook URL")
     is_active = fields.BooleanField(default=True, description="是否启用")
+    linked_schedule_item_ids = fields.JSONField(null=True, description="关联排期条目（需求）ID列表（JSON数组，为空则为全局群）")
     created_by = fields.ForeignKeyField(
         'models.User',
         related_name='created_webhooks',

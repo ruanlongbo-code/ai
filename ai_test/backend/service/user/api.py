@@ -60,6 +60,7 @@ async def register(user_data: UserRegisterRequest):
             phone=user.phone,
             real_name=user.real_name,
             avatar=user.avatar,
+            feishu_user_key=user.feishu_user_key,
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             last_login=user.last_login,
@@ -118,6 +119,7 @@ async def login(login_data: UserLoginRequest):
             phone=user.phone,
             real_name=user.real_name,
             avatar=user.avatar,
+            feishu_user_key=user.feishu_user_key,
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             last_login=user.last_login,
@@ -148,6 +150,7 @@ async def activate_user(
             phone=user.phone,
             real_name=user.real_name,
             avatar=user.avatar,
+            feishu_user_key=user.feishu_user_key,
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             last_login=user.last_login,
@@ -218,6 +221,7 @@ async def refresh_token(refresh_token: str):
                 phone=user.phone,
                 real_name=user.real_name,
                 avatar=user.avatar,
+                feishu_user_key=user.feishu_user_key,
                 is_active=user.is_active,
                 is_superuser=user.is_superuser,
                 last_login=user.last_login,
@@ -272,6 +276,7 @@ async def get_user_list(
             phone=user.phone,
             real_name=user.real_name,
             avatar=user.avatar,
+            feishu_user_key=user.feishu_user_key,
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             last_login=user.last_login,
@@ -331,6 +336,7 @@ async def get_user_profile(current_user: User = Depends(get_current_user)):
         phone=current_user.phone,
         real_name=current_user.real_name,
         avatar=current_user.avatar,
+        feishu_user_key=current_user.feishu_user_key,
         is_active=current_user.is_active,
         is_superuser=current_user.is_superuser,
         last_login=current_user.last_login,
@@ -377,6 +383,7 @@ async def disable_user(
             phone=user.phone,
             real_name=user.real_name,
             avatar=user.avatar,
+            feishu_user_key=user.feishu_user_key,
             is_active=user.is_active,
             is_superuser=user.is_superuser,
             last_login=user.last_login,
@@ -418,6 +425,9 @@ async def update_user_profile(
     if profile_data.avatar is not None:
         current_user.avatar = profile_data.avatar
 
+    if profile_data.feishu_user_key is not None:
+        current_user.feishu_user_key = profile_data.feishu_user_key
+
     await current_user.save()
 
     return UserProfileResponse(
@@ -427,6 +437,7 @@ async def update_user_profile(
         phone=current_user.phone,
         real_name=current_user.real_name,
         avatar=current_user.avatar,
+        feishu_user_key=current_user.feishu_user_key,
         is_active=current_user.is_active,
         is_superuser=current_user.is_superuser,
         last_login=current_user.last_login,
@@ -495,3 +506,24 @@ async def admin_reset_password(
     await user.save()
 
     return {"message": "密码已重置"}
+
+
+@router.post("/verify-feishu-key", summary="验证飞书项目UserKey")
+async def verify_feishu_user_key(
+        data: dict,
+        current_user: User = Depends(get_current_user)
+):
+    """
+    验证飞书项目 User Key 是否有效。
+    调用飞书项目 API 验证 key 的有效性，并尝试获取用户身份信息。
+    """
+    feishu_user_key = data.get("feishu_user_key", "")
+    if not feishu_user_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请输入飞书项目 User Key"
+        )
+
+    from utils.feishu_client import verify_user_key
+    result = await verify_user_key(feishu_user_key.strip())
+    return result

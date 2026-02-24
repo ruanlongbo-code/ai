@@ -60,22 +60,22 @@
             <el-table :data="biz.members || []" size="small" empty-text="暂无成员" border>
               <el-table-column prop="real_name" label="姓名" min-width="100">
                 <template #default="{ row }">{{ row.real_name || row.username }}</template>
-              </el-table-column>
+        </el-table-column>
               <el-table-column prop="role" label="角色" width="120">
-                <template #default="{ row }">
+          <template #default="{ row }">
                   <el-tag :type="roleTagType(row.role)" size="small">{{ roleLabel(row.role) }}</el-tag>
-                </template>
-              </el-table-column>
+          </template>
+        </el-table-column>
               <el-table-column label="操作" width="180">
-                <template #default="{ row }">
+          <template #default="{ row }">
                   <el-select v-model="row.role" size="small" style="width: 90px" @change="handleRoleChange(biz, row)">
                     <el-option label="组长" value="lead" />
                     <el-option label="测试人员" value="member" />
                   </el-select>
                   <el-button type="danger" size="small" link @click="handleRemoveMember(biz, row)" style="margin-left: 4px">移除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
+          </template>
+        </el-table-column>
+      </el-table>
 
             <!-- 业务线自身操作 -->
             <div style="margin-top: 12px; text-align: right;">

@@ -5,9 +5,9 @@
       <div class="breadcrumb-section">
         <el-breadcrumb separator="/">
           <el-breadcrumb-item>
-            <router-link to="/api-test/management">
+            <a href="javascript:void(0)" @click="goBack">
               接口管理
-            </router-link>
+            </a>
           </el-breadcrumb-item>
           <el-breadcrumb-item>完整用例生成</el-breadcrumb-item>
         </el-breadcrumb>
@@ -29,9 +29,28 @@
               <el-option v-for="env in testEnvOptions" :key="env.value" :label="env.label" :value="env.value" />
             </el-select>
             <el-tag v-if="isAdditionalInfoConfigured" type="success">已配置</el-tag>
-            <el-button type="primary" :disabled="!testEnvId || generating" @click="startGeneration">
+            <el-button 
+              v-if="!generating && !isCompleted" 
+              type="primary" 
+              :disabled="!testEnvId" 
+              @click="startGeneration"
+            >
               <el-icon><MagicStick /></el-icon>
               开始生成
+            </el-button>
+            <el-button 
+              v-if="generating" 
+              type="danger" 
+              @click="stopGeneration"
+            >
+              停止生成
+            </el-button>
+            <el-button 
+              v-if="isCompleted" 
+              type="success" 
+              @click="viewGeneratedCases"
+            >
+              查看生成的用例
             </el-button>
           </div>
         </div>
@@ -219,7 +238,13 @@ const updateStreamingMessage = (id, content, isComplete = false) => {
 
 // 页面操作
 const goBack = () => {
-  router.push(`/project/${projectId.value}/api-test/management`)
+  // 使用 path 导航，更可靠
+  const pid = projectId.value || projectStore.currentProject?.id
+  if (pid) {
+    router.push(`/project/${pid}/api-management`)
+  } else {
+    router.back()
+  }
 }
 
 const clearChat = () => {
@@ -422,6 +447,27 @@ const startGeneration = async () => {
               currentStreamingMessage.value.content += payload.message
               updateStreamingMessage(currentStreamingId, currentStreamingMessage.value.content, false)
             }
+          } else if (payload.type === 'complete') {
+            generating.value = false
+            isCompleted.value = true
+            progress.value = 100
+            progressStatus.value = 'success'
+            progressText.value = payload.message || '生成完成'
+            if (currentStreamingId && currentStreamingMessage.value) {
+              updateStreamingMessage(currentStreamingId, currentStreamingMessage.value.content + '\n✅ ' + (payload.message || '生成完成'), true)
+            } else {
+              addChatMessage('assistant', '✅ ' + (payload.message || '生成完成'))
+            }
+            addNotification('success', payload.message || '生成完成')
+          } else if (payload.type === 'error') {
+            generating.value = false
+            hasError.value = true
+            errorMessage.value = payload.message
+            progress.value = 100
+            progressStatus.value = 'exception'
+            progressText.value = '生成失败'
+            addChatMessage('system', `❌ ${payload.message}`)
+            addNotification('error', payload.message)
           } else {
             addMessage(payload.type || 'info', payload.message)
           }
@@ -461,10 +507,9 @@ const stopGeneration = () => {
 }
 
 const viewGeneratedCases = () => {
-  // 跳转至测试用例列表（按接口过滤）
+  // 跳转至自动化用例列表（按接口过滤）
   router.push({ 
-    name: 'ApiTestCases', 
-    params: { projectId: projectId.value }, 
+    name: 'ApiTestAutoCase', 
     query: { interfaceId: interfaceId.value } 
   })
 }

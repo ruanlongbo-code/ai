@@ -17,6 +17,14 @@ STORAGE_PATH = os.path.join(os.path.join(BASE_DIR, "rag"), "rag_storage")
 RAG_SERVER_URL = os.getenv('RAG_SERVER_URL', "")
 LIGHTRAG_API_KEY = os.getenv('LIGHTRAG_API_KEY')
 
+# ==============飞书开放平台配置==============
+FEISHU_APP_ID = os.getenv('FEISHU_APP_ID', '')
+FEISHU_APP_SECRET = os.getenv('FEISHU_APP_SECRET', '')
+
+# ==============飞书项目 MCP 配置==============
+FEISHU_PROJECT_KEY = os.getenv('FEISHU_PROJECT_KEY', 'research__development')
+FEISHU_MCP_KEY = os.getenv('FEISHU_MCP_KEY', '')
+
 # 对话模型
 llm: ChatOpenAI = ChatOpenAI(
     model=os.getenv('LLM_MODEL'),

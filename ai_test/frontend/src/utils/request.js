@@ -29,7 +29,7 @@ request.interceptors.request.use(
 // 响应拦截器
 request.interceptors.response.use(
 	(response) => {
-		return response
+			return response
 	},
 	(error) => {
 		const userStore = useUserStore()
@@ -39,11 +39,11 @@ request.interceptors.response.use(
 			// 排除登录接口本身的401（用户名密码错误）
 			const requestUrl = error.response.config?.url || ''
 			if (!requestUrl.includes('/login')) {
-				ElMessage.error('登录已过期，请重新登录')
-				userStore.logout()
-				router.push('/login')
-				return Promise.reject(error)
-			}
+			ElMessage.error('登录已过期，请重新登录')
+			userStore.logout()
+			router.push('/login')
+			return Promise.reject(error)
+		}
 		}
 
 		// 处理403权限不足
@@ -58,15 +58,15 @@ request.interceptors.response.use(
 			return Promise.reject(error)
 		}
 
-		// 网络错误处理
+        // 网络错误处理
 		if (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error')) {
-			ElNotification({
-				title: '网络错误',
-				message: '网络错误，请检查网络是否正常，检查后端服务状态！',
-				type: 'error',
+            ElNotification({
+                title: '网络错误',
+                message: '网络错误，请检查网络是否正常，检查后端服务状态！',
+                type: 'error',
 				duration: 3000
-			})
-		}
+            })
+            }
 
 		return Promise.reject(error)
 	}

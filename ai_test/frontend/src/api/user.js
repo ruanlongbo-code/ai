@@ -180,6 +180,18 @@ export const updateUserProfile = (data) => {
   })
 }
 
+/**
+ * 验证飞书项目UserKey
+ * @param {string} feishu_user_key - 飞书项目User Key
+ */
+export const verifyFeishuKey = (feishu_user_key) => {
+  return request({
+    url: '/user/verify-feishu-key',
+    method: 'post',
+    data: { feishu_user_key }
+  })
+}
+
 // 默认导出所有接口
 export default {
   register,
@@ -193,5 +205,6 @@ export default {
   disableUser,
   updateUserProfile,
   changePassword,
-  adminResetPassword
+  adminResetPassword,
+  verifyFeishuKey
 }

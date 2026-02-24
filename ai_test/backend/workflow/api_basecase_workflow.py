@@ -57,11 +57,14 @@ class ApiBaseCaseGeneratorWorkFlow:
                 chain = prompt | llm | self.parser
                 response = chain.invoke({"api_doc": api_doc, "preconditions": preconditions})
             except Exception as e:
-                print("生成的数据格式提取失败，重新生成")
+                print(f"生成的数据格式提取失败（第{i+1}次），重新生成: {e}")
                 continue
             else:
                 res = response or []
                 return {"cases": res}
+        # 所有重试均失败，返回空列表避免下游 NoneType 错误
+        writer("【用例生成失败】：多次尝试后仍未成功生成基础用例")
+        return {"cases": []}
 
     def check_coverage(self, state):
         """检查用例的覆盖率"""
@@ -109,12 +112,15 @@ class ApiBaseCaseGeneratorWorkFlow:
             else:
                 new_cases = response or []
                 return {"cases": new_cases}
+        # 所有重试均失败，返回空列表
+        writer("【补充用例失败】：多次尝试后仍未成功补充用例")
+        return {"cases": []}
 
     def output_base_case(self, state, runtime=None):
         """输出基础测试用例并保存到数据库"""
         writer = get_stream_writer()
-        cases = state.get("cases", [])
-        writer(f"【用例生成完毕】：，一共生成用例数：{len(cases)}条")
+        cases = state.get("cases", []) or []
+        writer(f"【用例生成完毕】：一共生成用例数：{len(cases)}条")
         # 保存基础用例到数据库
         if runtime and hasattr(runtime, 'context'):
             if runtime.context:
@@ -124,8 +130,11 @@ class ApiBaseCaseGeneratorWorkFlow:
         else:
             interface_id = state.get("interface_id")
 
-        if interface_id:
-            cases = self._save_base_cases_to_db(cases, interface_id)
+        if interface_id and cases:
+            saved_cases = self._save_base_cases_to_db(cases, interface_id)
+            # 如果保存失败返回了 None，使用原始 cases
+            if saved_cases is not None:
+                cases = saved_cases
 
         return {"out_put_cases": cases}
 
@@ -156,18 +165,30 @@ class ApiBaseCaseGeneratorWorkFlow:
             )
             cursor = connection.cursor()
 
-            # 先删除该接口的旧基础用例
+            # 先删除该接口旧基础用例关联的测试用例（外键约束）
+            delete_test_cases_sql = """
+            DELETE FROM api_test_case 
+            WHERE base_case_id IN (SELECT id FROM api_base_case WHERE interface_id = %s)
+            """
+            cursor.execute(delete_test_cases_sql, (interface_id,))
+            deleted_test_cases = cursor.rowcount
+            if deleted_test_cases > 0:
+                print(f"删除接口 {interface_id} 关联的 {deleted_test_cases} 条旧测试用例")
+
+            # 再删除该接口的旧基础用例
             delete_sql = "DELETE FROM api_base_case WHERE interface_id = %s"
-            cursor.execute(delete_sql, (str(interface_id),))
+            cursor.execute(delete_sql, (interface_id,))
             print(f"删除接口 {interface_id} 的旧基础用例")
 
             # 插入新的基础用例
+            from datetime import datetime
             insert_sql = """
-            INSERT INTO api_base_case (interface_id, name, steps, expected, status) 
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO api_base_case (interface_id, name, steps, expected, status, created_at, updated_at) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
 
             saved_count = 0
+            current_time = datetime.now()
             for case in cases:
                 case_name = case.get('name', f'基础用例_{saved_count + 1}')
                 case_steps = case.get('steps', [])
@@ -187,7 +208,9 @@ class ApiBaseCaseGeneratorWorkFlow:
                     case_name,
                     steps_json,
                     expected_json,
-                    case_status
+                    case_status,
+                    current_time,
+                    current_time
                 ))
                 writer(f"【用例保存】： {case_name} 已保存到数据库 ")
                 saved_count += 1

@@ -77,6 +77,35 @@ async def run_migrations():
         "ALTER TABLE `project_module` ADD COLUMN `sort_order` INT NOT NULL DEFAULT 0",
         "ALTER TABLE `project_module` ADD COLUMN `parent_id` INT NULL",
         "ALTER TABLE `project_module` ADD COLUMN `description` TEXT NULL",
+        # 飞书Webhook新增关联业务线字段（旧字段保留兼容）
+        "ALTER TABLE `feishu_webhook` ADD COLUMN `linked_categories` JSON NULL",
+        # 飞书Webhook新增关联需求ID列表字段（替代业务线关联）
+        "ALTER TABLE `feishu_webhook` ADD COLUMN `linked_schedule_item_ids` JSON NULL",
+        # 缺陷表新增飞书项目字段
+        "ALTER TABLE `defect` ADD COLUMN `feishu_ticket_id` VARCHAR(200) NULL",
+        "ALTER TABLE `defect` ADD COLUMN `feishu_ticket_url` VARCHAR(500) NULL",
+        # 日报表：用例执行进度替代原来的4个用例字段
+        "ALTER TABLE `daily_report` ADD COLUMN `case_execution_progress` SMALLINT NOT NULL DEFAULT 0",
+        # 排期条目：需求状态枚举扩展（字段已存在则跳过）
+        "ALTER TABLE `schedule_item` MODIFY COLUMN `requirement_status` VARCHAR(40) NOT NULL DEFAULT 'pending'",
+        # 排期条目：用例状态字段
+        "UPDATE `schedule_item` SET `case_status` = 'pending' WHERE `case_status` IS NULL",
+        "ALTER TABLE `schedule_item` MODIFY COLUMN `case_status` VARCHAR(30) NOT NULL DEFAULT 'pending'",
+        # 用户表：飞书项目UserKey字段
+        "ALTER TABLE `user` ADD COLUMN `feishu_user_key` VARCHAR(128) NULL",
+        # 日报表：旧列设置默认值，避免INSERT时因NOT NULL无默认值报错
+        "ALTER TABLE `daily_report` ALTER COLUMN `case_total` SET DEFAULT 0",
+        "ALTER TABLE `daily_report` ALTER COLUMN `case_executed` SET DEFAULT 0",
+        "ALTER TABLE `daily_report` ALTER COLUMN `case_passed` SET DEFAULT 0",
+        "ALTER TABLE `daily_report` ALTER COLUMN `case_failed` SET DEFAULT 0",
+        # 功能用例表：增加场景和用例集字段
+        "ALTER TABLE `functional_case` ADD COLUMN `scenario` VARCHAR(255) NULL",
+        "ALTER TABLE `functional_case` ADD COLUMN `scenario_sort` INT NOT NULL DEFAULT 0",
+        "ALTER TABLE `functional_case` ADD COLUMN `case_set_id` INT NULL",
+        # 需求表：增加关联排期需求字段
+        "ALTER TABLE `requirement_doc` ADD COLUMN `schedule_item_id` INT NULL",
+        # Phase 2: 数据驱动测试 - ApiTestCase增加test_data字段
+        "ALTER TABLE `api_test_case` ADD COLUMN `test_data` JSON NULL",
     ]
     for sql in migrations:
         try:

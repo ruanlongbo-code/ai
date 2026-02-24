@@ -63,8 +63,12 @@ class ApiCaseGenerateMainWorkFlow0:
         """并发去生成可以执行的接口测试用例"""
         writer = get_stream_writer()
         writer("【任务并发】：开始并发生可执行用例")
+        base_cases = state.get("base_cases") or []
+        if not base_cases:
+            writer("【跳过】：没有基础用例，跳过可执行用例生成")
+            return []
         task_list = []
-        for base_case in state.get("base_cases"):
+        for base_case in base_cases:
             task_list.append(
                 Send("生成可执行用例", {
                     "api_info": state.get("api_info"),
@@ -111,12 +115,18 @@ class ApiCaseGenerateMainWorkFlow:
                                                      "interface_id": state.get("interface_id")
                                                      },
                                                     )
-        return {"base_cases": basecase_state.get("out_put_cases")}
+        base_cases = basecase_state.get("out_put_cases") or []
+        return {"base_cases": base_cases}
 
     @staticmethod
     def generate_run_api_case(state: MainState):
         """单线程逐个用例生成可执行用例"""
-        for case in state.get("base_cases"):
+        base_cases = state.get("base_cases") or []
+        if not base_cases:
+            writer = get_stream_writer()
+            writer("【跳过】：没有基础用例，跳过可执行用例生成")
+            return {}
+        for case in base_cases:
             # 创建工作流
             workflow = ApiRunCaseGeneratorWorkFlow().create_workflow()
             # 提交任务到线程池（第一个参数为线程执行的任务函数，第二个参数开始为传递给工作函数的参数）

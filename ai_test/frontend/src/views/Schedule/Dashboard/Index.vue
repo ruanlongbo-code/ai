@@ -91,8 +91,8 @@
             </div>
             <div class="report-detail">
               <div class="report-progress-text">{{ report.today_progress }}</div>
-              <div class="report-meta" v-if="report.bug_total > 0 || report.case_total > 0">
-                <span v-if="report.case_total > 0">用例: {{ report.case_executed }}/{{ report.case_total }}</span>
+              <div class="report-meta" v-if="report.bug_total > 0 || report.case_execution_progress > 0">
+                <span v-if="report.case_execution_progress > 0">用例执行: {{ report.case_execution_progress }}%</span>
                 <span v-if="report.bug_total > 0">Bug: {{ report.bug_total }}个({{ report.bug_open }}待处理)</span>
               </div>
               <div class="report-plan" v-if="report.next_plan">
@@ -197,8 +197,8 @@
                             :color="progressColor(row.actual_progress)" />
               </template>
             </el-table-column>
-            <el-table-column label="用例" width="100" align="center">
-              <template #default="{ row }">{{ row.case_executed }}/{{ row.case_total }}</template>
+            <el-table-column label="用例进度" width="100" align="center">
+              <template #default="{ row }">{{ row.case_execution_progress || 0 }}%</template>
             </el-table-column>
             <el-table-column label="Bug" width="100" align="center">
               <template #default="{ row }">

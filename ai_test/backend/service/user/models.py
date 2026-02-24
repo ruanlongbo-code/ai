@@ -14,6 +14,7 @@ class User(Model):
     phone = fields.CharField(max_length=20, null=True, description="手机号")
     real_name = fields.CharField(max_length=50, null=True, description="真实姓名")
     avatar = fields.CharField(max_length=255, null=True, description="头像URL")
+    feishu_user_key = fields.CharField(max_length=128, null=True, description="飞书项目UserKey")
     is_active = fields.BooleanField(default=True, description="是否激活")
     is_superuser = fields.BooleanField(default=False, description="是否超级用户")
     last_login = fields.DatetimeField(null=True, description="最后登录时间")

@@ -23,8 +23,6 @@ langsmith
 weaviate-client
 langchain-weaviate
 lightrag-hku[api]
-raganything[all]
-
 fastapi
 pydantic[email]
 uvicorn

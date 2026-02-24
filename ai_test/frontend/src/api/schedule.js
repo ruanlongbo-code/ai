@@ -101,7 +101,86 @@ export const testFeishuWebhook = (projectId, webhookId) => {
   return request({ url: `/schedule/${projectId}/feishu-webhooks/${webhookId}/test`, method: 'post' })
 }
 
-// ==================== 飞书推送 ====================
+// ==================== AI报告编辑 ====================
+
+export const updateAiReportContent = (projectId, reportId, data) => {
+  return request({ url: `/schedule/${projectId}/daily-reports/${reportId}/ai-content`, method: 'put', data })
+}
+
+// ==================== 进度智能计算 ====================
+
+export const calculateProgress = (projectId, data) => {
+  return request({ url: `/schedule/${projectId}/calculate-progress`, method: 'post', data, timeout: 30000 })
+}
+
+export const getProgressOptions = (projectId) => {
+  return request({ url: `/schedule/${projectId}/progress-options`, method: 'get' })
+}
+
+// ==================== 缺陷管理 ====================
+
+export const createDefect = (projectId, data) => {
+  return request({ url: `/schedule/${projectId}/defects`, method: 'post', data })
+}
+
+export const getDefects = (projectId, params) => {
+  return request({ url: `/schedule/${projectId}/defects`, method: 'get', params })
+}
+
+export const updateDefect = (projectId, defectId, data) => {
+  return request({ url: `/schedule/${projectId}/defects/${defectId}`, method: 'put', data })
+}
+
+export const deleteDefect = (projectId, defectId) => {
+  return request({ url: `/schedule/${projectId}/defects/${defectId}`, method: 'delete' })
+}
+
+export const getDefectStats = (projectId, scheduleItemId) => {
+  return request({ url: `/schedule/${projectId}/defects/stats`, method: 'get', params: { schedule_item_id: scheduleItemId } })
+}
+
+export const aiExpandDefect = (projectId, defectId) => {
+  return request({ url: `/schedule/${projectId}/defects/${defectId}/ai-expand`, method: 'post', timeout: 60000 })
+}
+
+// AI扩写缺陷描述预览（不创建缺陷）
+export const aiExpandDefectPreview = (projectId, data) => {
+  return request({ url: `/schedule/${projectId}/defects/ai-expand-preview`, method: 'post', data, timeout: 60000 })
+}
+
+// ==================== 截图AI识别 ====================
+
+export const analyzeScreenshot = (projectId, file) => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request({
+    url: `/schedule/${projectId}/analyze-screenshot`,
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 60000,
+  })
+}
+
+// ==================== 飞书集成 ====================
+
+export const verifyFeishuConnection = (projectId) => {
+  return request({ url: `/schedule/${projectId}/feishu/verify`, method: 'get' })
+}
+
+export const syncDefectToFeishu = (projectId, defectId) => {
+  return request({ url: `/schedule/${projectId}/defects/${defectId}/sync-to-feishu`, method: 'post', timeout: 30000 })
+}
+
+export const getFeishuStoryIssues = (projectId, ticketUrl) => {
+  return request({ url: `/schedule/${projectId}/feishu/story-issues`, method: 'get', params: { ticket_url: ticketUrl } })
+}
+
+// ==================== 需求群同步 ====================
+
+export const getMatchedWebhooks = (projectId, reportId) => {
+  return request({ url: `/schedule/${projectId}/daily-reports/${reportId}/matched-webhooks`, method: 'get' })
+}
 
 export const sendReportToFeishu = (projectId, reportId, data) => {
   return request({ url: `/schedule/${projectId}/daily-reports/${reportId}/send-feishu`, method: 'post', data })

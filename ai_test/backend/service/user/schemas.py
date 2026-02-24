@@ -29,6 +29,7 @@ class UserResponse(BaseModel):
     phone: Optional[str] = Field(None, description="手机号")
     real_name: Optional[str] = Field(None, description="真实姓名")
     avatar: Optional[str] = Field(None, description="头像URL")
+    feishu_user_key: Optional[str] = Field(None, description="飞书项目UserKey")
     is_active: bool = Field(..., description="是否激活")
     is_superuser: bool = Field(..., description="是否超级用户")
     last_login: Optional[datetime] = Field(None, description="最后登录时间")
@@ -79,6 +80,7 @@ class UserProfileResponse(BaseModel):
     phone: Optional[str] = Field(None, description="手机号")
     real_name: Optional[str] = Field(None, description="真实姓名")
     avatar: Optional[str] = Field(None, description="头像URL")
+    feishu_user_key: Optional[str] = Field(None, description="飞书项目UserKey")
     is_active: bool = Field(..., description="是否激活")
     is_superuser: bool = Field(..., description="是否超级用户")
     last_login: Optional[datetime] = Field(None, description="最后登录时间")
@@ -95,6 +97,7 @@ class UserProfileUpdateRequest(BaseModel):
     phone: Optional[str] = Field(None, max_length=20, description="手机号")
     real_name: Optional[str] = Field(None, max_length=50, description="真实姓名")
     avatar: Optional[str] = Field(None, max_length=255, description="头像URL")
+    feishu_user_key: Optional[str] = Field(None, max_length=128, description="飞书项目UserKey")
 
 
 class RefreshTokenRequest(BaseModel):

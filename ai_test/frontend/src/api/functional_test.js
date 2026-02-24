@@ -318,6 +318,88 @@ export const extractRequirementFromDocument = (projectId, formData) => {
     headers: {
       'Content-Type': 'multipart/form-data'
     },
-    timeout: 120000 // AI提取可能需要较长时间，设置2分钟超时
+    timeout: 120000
+  })
+}
+
+// ==================== 排期需求关联 API ====================
+
+/**
+ * 获取可关联的排期需求列表
+ * @param {number} projectId - 项目ID
+ * @param {Object} params - 查询参数
+ * @param {string} [params.keyword] - 按需求标题搜索
+ */
+export const getScheduleItemsForLink = (projectId, params = {}) => {
+  return request({
+    url: `/functional_test/${projectId}/schedule-items-for-link`,
+    method: 'get',
+    params
+  })
+}
+
+// ==================== 用例集 API ====================
+
+/**
+ * 获取用例集列表
+ * @param {number} projectId - 项目ID
+ * @param {Object} params - 查询参数
+ */
+export const getCaseSetList = (projectId, params = {}) => {
+  return request({
+    url: `/functional_test/${projectId}/case_sets`,
+    method: 'get',
+    params
+  })
+}
+
+/**
+ * 获取用例集详情（含场景分组）
+ * @param {number} projectId - 项目ID
+ * @param {number} caseSetId - 用例集ID
+ */
+export const getCaseSetDetail = (projectId, caseSetId) => {
+  return request({
+    url: `/functional_test/${projectId}/case_sets/${caseSetId}`,
+    method: 'get'
+  })
+}
+
+/**
+ * 创建用例集
+ * @param {number} projectId - 项目ID
+ * @param {Object} data - 用例集数据
+ */
+export const createCaseSet = (projectId, data) => {
+  return request({
+    url: `/functional_test/${projectId}/case_sets`,
+    method: 'post',
+    data
+  })
+}
+
+/**
+ * 更新用例集
+ * @param {number} projectId - 项目ID
+ * @param {number} caseSetId - 用例集ID
+ * @param {Object} data - 更新数据
+ */
+export const updateCaseSet = (projectId, caseSetId, data) => {
+  return request({
+    url: `/functional_test/${projectId}/case_sets/${caseSetId}`,
+    method: 'put',
+    data
+  })
+}
+
+/**
+ * 删除用例集
+ * @param {number} projectId - 项目ID
+ * @param {number} caseSetId - 用例集ID
+ */
+export const deleteCaseSet = (projectId, caseSetId) => {
+  return request({
+    url: `/functional_test/${projectId}/case_sets/${caseSetId}`,
+    method: 'delete'
   })
 }

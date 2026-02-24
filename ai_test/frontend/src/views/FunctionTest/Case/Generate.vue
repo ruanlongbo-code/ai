@@ -94,11 +94,46 @@
           </el-card>
         </div>
 
+        <!-- 生成进度条 -->
+        <div v-if="generating || progressStatus === 'success' || progressStatus === 'exception'" class="progress-section">
+          <el-card class="progress-card" shadow="never">
+            <div class="progress-wrapper">
+              <div class="progress-header">
+                <span class="progress-label">
+                  <el-icon v-if="generating" class="is-loading"><Loading /></el-icon>
+                  <el-icon v-else-if="progressStatus === 'success'" style="color:#67c23a"><SuccessFilled /></el-icon>
+                  <el-icon v-else-if="progressStatus === 'exception'" style="color:#f56c6c"><CircleCloseFilled /></el-icon>
+                  {{ progressText || '准备中...' }}
+                </span>
+                <span class="progress-percent">{{ progress }}%</span>
+              </div>
+              <el-progress
+                :percentage="progress"
+                :status="progressStatus === 'active' ? '' : progressStatus"
+                :stroke-width="18"
+                :show-text="false"
+                :striped="generating"
+                :striped-flow="generating"
+                :duration="8"
+              />
+              <div class="progress-steps">
+                <span :class="['step', { active: progress >= 5 }]">分析需求</span>
+                <span :class="['step', { active: progress >= 30 }]">提取测试点</span>
+                <span :class="['step', { active: progress >= 40 }]">生成用例</span>
+                <span :class="['step', { active: progress >= 70 }]">验证覆盖率</span>
+                <span :class="['step', { active: progress >= 80 }]">保存用例</span>
+                <span :class="['step', { active: progress >= 100 }]">完成</span>
+              </div>
+            </div>
+          </el-card>
+        </div>
+
         <!-- 生成进度和生成数据 - 左右布局 (3:7) -->
         <div class="content-section">
           <!-- 左侧：生成进度列表 (30%) -->
           <div class="notification-section" v-if="notifications.length > 0">
             <NotificationList
+                ref="notificationListRef"
                 :notifications="notifications"
                 @clear="clearNotifications"
                 @mark-read="markNotificationAsRead"
@@ -111,6 +146,7 @@
           <!-- 实时生成输出 - ChatGPT风格 -->
           <div class="chat-wrapper">
             <ChatContainer
+                ref="chatContainerRef"
                 :messages="chatMessages"
                 :title="'AI 用例生成助手'"
                 :show-header="false"
@@ -202,33 +238,34 @@
           <div class="preview-tree">
             <div class="tree-node root">
               <span class="node-icon">📋</span>
-              <span class="node-text">{{ xmindSettings.root_prefix }}{{ requirement?.title || 'xxx' }}{{ xmindSettings.root_suffix }}</span>
+              <span class="node-text">{{ requirement?.title || '需求标题' }}</span>
             </div>
             <div class="tree-node level1">
               <span class="tree-line">├─</span>
+              <span class="node-text">🎯 {{ xmindSettings.scenario_prefix }}场景A{{ xmindSettings.scenario_suffix }}</span>
+            </div>
+            <div class="tree-node level2">
+              <span class="tree-line">│ &nbsp; ├─</span>
               <span class="node-text">
                 <template v-if="xmindSettings.show_priority">{P0} </template>
                 <template v-if="xmindSettings.show_case_id">[TC_001] </template>
                 xxx（用例标题）
               </span>
             </div>
-          <div class="tree-node level2">
-            <span class="tree-line">│ &nbsp; └─</span>
-            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '前置条件：\n' : '' }}1.前置条件内容1
-2.前置条件内容2</span>
-          </div>
-          <div class="tree-node level3">
-            <span class="tree-line">│ &nbsp; &nbsp; &nbsp; └─</span>
-            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '测试步骤：\n' : '' }}1.测试步骤1
-2.测试步骤2</span>
-          </div>
-          <div class="tree-node level4">
-            <span class="tree-line">│ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; └─</span>
-            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '预期结果：\n' : '' }}1.预期结果1
-2.预期结果2</span>
-          </div>
-            <div class="tree-node level1">
-              <span class="tree-line">├─</span>
+            <div class="tree-node level3">
+              <span class="tree-line">│ &nbsp; │ &nbsp; └─</span>
+              <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '前置条件：\n' : '' }}1.前置条件内容</span>
+            </div>
+            <div class="tree-node level4">
+              <span class="tree-line">│ &nbsp; │ &nbsp; &nbsp; &nbsp; └─</span>
+              <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '测试步骤：\n' : '' }}1.测试步骤</span>
+            </div>
+            <div class="tree-node level5">
+              <span class="tree-line">│ &nbsp; │ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; └─</span>
+              <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '预期结果：\n' : '' }}1.预期结果</span>
+            </div>
+            <div class="tree-node level2">
+              <span class="tree-line">│ &nbsp; └─</span>
               <span class="node-text">
                 <template v-if="xmindSettings.show_priority">{P1} </template>
                 xxx（用例标题）
@@ -236,24 +273,28 @@
             </div>
             <div class="tree-node level1">
               <span class="tree-line">└─</span>
+              <span class="node-text">🎯 {{ xmindSettings.scenario_prefix }}场景B{{ xmindSettings.scenario_suffix }}</span>
+            </div>
+            <div class="tree-node level2">
+              <span class="tree-line">&nbsp; &nbsp; └─</span>
               <span class="node-text">...（更多用例）</span>
             </div>
           </div>
-          <p class="preview-note">* 默认不注明节点属性</p>
+          <p class="preview-note">* 根节点为需求标题，第二层为验证场景，第三层为用例</p>
         </div>
 
         <!-- 模板设置选项 -->
-        <el-divider content-position="left">模板设置（可根据需要调整）</el-divider>
+        <el-divider content-position="left">场景节点设置</el-divider>
 
         <el-form label-width="160px" class="template-form">
-          <el-form-item label="根节点前缀">
-            <el-input v-model="xmindSettings.root_prefix" placeholder="验证" style="width: 120px;" />
+          <el-form-item label="场景名称前缀">
+            <el-input v-model="xmindSettings.scenario_prefix" placeholder="验证" style="width: 120px;" />
           </el-form-item>
-          <el-form-item label="根节点后缀">
-            <el-input v-model="xmindSettings.root_suffix" placeholder="功能" style="width: 120px;" />
+          <el-form-item label="场景名称后缀">
+            <el-input v-model="xmindSettings.scenario_suffix" placeholder="功能" style="width: 120px;" />
           </el-form-item>
 
-          <el-divider />
+          <el-divider content-position="left">用例节点设置</el-divider>
 
           <el-form-item label="用例标题显示优先级">
             <el-switch v-model="xmindSettings.show_priority" />
@@ -295,6 +336,7 @@ import {
   Loading,
   SuccessFilled,
   WarningFilled,
+  CircleCloseFilled,
   ChatDotRound,
   View,
   Download
@@ -332,6 +374,10 @@ const chatMessages = ref([])
 const streamingMessageId = ref('')
 const currentStreamingMessage = ref(null)
 
+// 组件引用
+const chatContainerRef = ref(null)
+const notificationListRef = ref(null)
+
 // XMind 导出相关
 const xmindDialogVisible = ref(false)
 const exportingXmind = ref(false)
@@ -339,8 +385,8 @@ const xmindSettings = reactive({
   show_priority: true,
   show_case_id: false,
   show_node_labels: false,
-  root_prefix: '验证',
-  root_suffix: '功能',
+  scenario_prefix: '验证',
+  scenario_suffix: '功能',
 })
 
 // 新增：进度列表数据
@@ -454,6 +500,13 @@ const scrollToBottom = () => {
     if (outputContainer.value) {
       outputContainer.value.scrollTop = outputContainer.value.scrollHeight
     }
+    // 同时滚动ChatContainer和NotificationList
+    if (chatContainerRef.value?.scrollToBottom) {
+      chatContainerRef.value.scrollToBottom()
+    }
+    if (notificationListRef.value?.scrollToBottom) {
+      notificationListRef.value.scrollToBottom()
+    }
   })
 }
 
@@ -557,21 +610,33 @@ const handleGenerate = async () => {
 
             // 处理不同类型的消息
             if (parsedData.type === 'start') {
+              // 使用后端传来的进度值
+              if (parsedData.progress !== undefined) {
+                progress.value = parsedData.progress
+              }
+              progressText.value = parsedData.message
               // 开始流式消息，创建一个可以持续更新的消息
               if (!currentStreamingId) {
                 currentStreamingId = startStreamingMessage('assistant', `🔄 ${parsedData.message}\n`)
               }
               // 添加到进度列表
               addNotification('start', parsedData.message)
+              scrollToBottom()
             } else if (parsedData.type === 'info') {
-              // 更新进度
-              progressValue = Math.min(progressValue + 10, 90)
-              progress.value = progressValue
+              // 使用后端传来的进度值
+              if (parsedData.progress !== undefined) {
+                progress.value = parsedData.progress
+              }
               progressText.value = parsedData.message
 
               // info 类型消息只添加到进度列表，不显示在流式输出中
               addNotification('info', parsedData.message)
+              scrollToBottom()
             } else if (parsedData.type === 'progress') {
+              // 使用后端传来的进度值（如果有）
+              if (parsedData.progress !== undefined) {
+                progress.value = parsedData.progress
+              }
               // 处理流式内容 - 直接追加到当前消息（保持当前方式）
               if (!currentStreamingId) {
                 currentStreamingId = startStreamingMessage('assistant', parsedData.message)
@@ -583,6 +648,7 @@ const handleGenerate = async () => {
                 }
               }
               // progress类型不添加到进度列表，保持当前显示方式
+              scrollToBottom()
             } else if (parsedData.type === 'complete') {
               progress.value = 100
               progressStatus.value = 'success'
@@ -637,7 +703,10 @@ ${parsedData.cases.map((caseItem, index) =>
               }
               // 添加到进度列表
               addNotification('complete', parsedData.message)
+              scrollToBottom()
             } else if (parsedData.type === 'error') {
+              progressStatus.value = 'exception'
+              progressText.value = parsedData.message
               // 将错误信息追加到流式消息中
               if (currentStreamingId && currentStreamingMessage.value) {
                 currentStreamingMessage.value.content += `\n❌ 错误：${parsedData.message}`
@@ -648,6 +717,7 @@ ${parsedData.cases.map((caseItem, index) =>
               }
               // 添加到进度列表
               addNotification('error', parsedData.message)
+              scrollToBottom()
             } else {
               // 其他类型的消息 - 追加到流式消息中
               if (currentStreamingId && currentStreamingMessage.value) {
@@ -658,6 +728,7 @@ ${parsedData.cases.map((caseItem, index) =>
               }
               // 其他类型也添加到进度列表
               addNotification(parsedData.type || 'info', parsedData.message)
+              scrollToBottom()
             }
 
             // 保持原有的兼容性
@@ -708,7 +779,13 @@ const handleExportXmind = async () => {
     const response = await exportCasesAsXmind(
         projectId.value,
         requirementId.value,
-        { ...xmindSettings }
+        {
+          show_priority: xmindSettings.show_priority,
+          show_case_id: xmindSettings.show_case_id,
+          show_node_labels: xmindSettings.show_node_labels,
+          scenario_prefix: xmindSettings.scenario_prefix,
+          scenario_suffix: xmindSettings.scenario_suffix,
+        }
     )
 
     // 处理文件下载
@@ -954,6 +1031,72 @@ const markAllNotificationsAsRead = () => {
 .requirement-section {
   width: 100%;
   margin-bottom: 20px;
+}
+
+/* 进度条区域 */
+.progress-section {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.progress-card {
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f0f5ff 0%, #fafbff 100%);
+  border: 1px solid #e0e6f1;
+}
+
+.progress-card :deep(.el-card__body) {
+  padding: 16px 24px;
+}
+
+.progress-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.progress-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #303133;
+}
+
+.progress-percent {
+  font-size: 16px;
+  font-weight: 600;
+  color: #409eff;
+}
+
+.progress-steps {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.progress-steps .step {
+  font-size: 12px;
+  color: #c0c4cc;
+  transition: color 0.3s ease;
+  position: relative;
+}
+
+.progress-steps .step.active {
+  color: #409eff;
+  font-weight: 500;
+}
+
+.progress-steps .step.active::before {
+  content: '✓ ';
+  font-size: 11px;
 }
 
 /* 内容区域 - 左右布局 */
@@ -1347,6 +1490,11 @@ const markAllNotificationsAsRead = () => {
 }
 
 .tree-node.level4 {
+  padding-left: 20px;
+  color: #606266;
+}
+
+.tree-node.level5 {
   padding-left: 20px;
   color: #606266;
 }

@@ -248,6 +248,28 @@ watch(
     }
 )
 
+// 深度监听消息内容变化（流式更新时消息内容变化但长度不变）
+watch(
+    () => props.messages.map(m => m.content?.length || 0).join(','),
+    async () => {
+      if (props.autoScroll && props.streamingMessageId) {
+        await nextTick()
+        scrollToBottom()
+      }
+    }
+)
+
+// 监听流式消息ID变化
+watch(
+    () => props.streamingMessageId,
+    async (newVal) => {
+      if (newVal && props.autoScroll) {
+        await nextTick()
+        scrollToBottom()
+      }
+    }
+)
+
 // 监听流式输出状态变化
 watch(
     () => props.isLoading,

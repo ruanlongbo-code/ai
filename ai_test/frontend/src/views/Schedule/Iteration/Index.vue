@@ -86,7 +86,8 @@
         <div class="table-header">
           <span>需求排期列表</span>
           <div class="table-filters">
-            <el-select v-model="filterCategory" placeholder="业务线" clearable size="small" style="width: 140px; margin-right: 8px">
+            <el-select v-model="filterCategory" placeholder="全部业务线" clearable size="small" style="width: 160px; margin-right: 8px">
+              <el-option label="全部业务线" value="" />
               <el-option v-for="cat in categories" :key="cat" :label="cat" :value="cat" />
             </el-select>
             <el-select v-model="filterAssignee" placeholder="负责人" clearable size="small" style="width: 140px">
@@ -214,11 +215,17 @@
           <el-col :span="12">
             <el-form-item label="需求状态">
               <el-select v-model="itemForm.requirement_status" style="width: 100%">
+                <el-option label="暂停" value="paused" />
+                <el-option label="已澄清&待技术评审" value="clarified_pending_review" />
                 <el-option label="待排期" value="pending" />
-                <el-option label="已排期" value="scheduled" />
+                <el-option label="已排期待开发" value="scheduled" />
                 <el-option label="开发中" value="developing" />
+                <el-option label="已提测" value="submitted_testing" />
                 <el-option label="测试中" value="testing" />
-                <el-option label="已完成" value="completed" />
+                <el-option label="测试完成待发布" value="test_done_pending_release" />
+                <el-option label="灰度/AB中" value="gray_ab_testing" />
+                <el-option label="已上线" value="released" />
+                <el-option label="免测" value="no_test_needed" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -393,11 +400,37 @@ function priorityTagType(p) {
   return map[p] || ''
 }
 function reqStatusLabel(s) {
-  const map = { pending: '待排期', scheduled: '已排期', developing: '开发中', testing: '测试中', completed: '已完成' }
+  const map = {
+    paused: '暂停',
+    clarified_pending_review: '已澄清&待技术评审',
+    pending: '待排期',
+    scheduled: '已排期待开发',
+    developing: '开发中',
+    submitted_testing: '已提测',
+    testing: '测试中',
+    test_done_pending_release: '测试完成待发布',
+    gray_ab_testing: '灰度/AB中',
+    released: '已上线',
+    no_test_needed: '免测',
+    completed: '已完成',
+  }
   return map[s] || s
 }
 function reqStatusTagType(s) {
-  const map = { pending: 'info', scheduled: '', developing: 'warning', testing: '', completed: 'success' }
+  const map = {
+    paused: 'info',
+    clarified_pending_review: 'warning',
+    pending: 'info',
+    scheduled: '',
+    developing: 'warning',
+    submitted_testing: '',
+    testing: '',
+    test_done_pending_release: 'success',
+    gray_ab_testing: 'warning',
+    released: 'success',
+    no_test_needed: 'info',
+    completed: 'success',
+  }
   return map[s] || ''
 }
 function caseStatusLabel(s) {
@@ -478,10 +511,7 @@ async function loadMyBusinessLines() {
     const res = await getMyBusinessLines(projectId.value)
     const data = res.data || res
     myBusinessLines.value = data.business_lines || []
-    // 非管理员自动设置默认筛选为自己的第一个业务线
-    if (!isAdmin.value && myBizNames.value.length > 0 && !filterCategory.value) {
-      filterCategory.value = myBizNames.value[0]
-    }
+    // 默认显示全部业务线，不自动筛选
   } catch (e) {
     console.error('加载用户业务线失败', e)
   }

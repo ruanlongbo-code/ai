@@ -187,7 +187,6 @@
                 <div class="steps-header">
                   <div class="step-col step-number-col">步骤</div>
                   <div class="step-col step-action-col">操作步骤</div>
-                  <div class="step-col step-expected-col">预期结果</div>
                   <div v-if="isEditing" class="step-col step-actions-col">操作</div>
                 </div>
                 
@@ -211,17 +210,6 @@
                         resize="none"
                       />
                       <div v-else class="step-content">{{ step.action || '无' }}</div>
-                    </div>
-                    <div class="step-col step-expected-col">
-                      <el-input
-                        v-if="isEditing"
-                        v-model="step.expected"
-                        placeholder="请输入预期结果"
-                        type="textarea"
-                        :rows="2"
-                        resize="none"
-                      />
-                      <div v-else class="step-content">{{ step.expected || '无' }}</div>
                     </div>
                     <div v-if="isEditing" class="step-col step-actions-col">
                       <el-button 

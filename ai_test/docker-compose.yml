@@ -37,9 +37,13 @@ services:
       - ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=4320
       - REFRESH_TOKEN_EXPIRE_DAYS=7
-      - LLM_MODEL=gpt-4o
-      - BASE_URL=https://api.openai.com/v1
-      - API_KEY=sk-your-real-api-key
+      - LLM_MODEL=bedrock-claude-4-sonnet
+      - BASE_URL=https://litellm.shoplazza.site
+      - API_KEY=sk-shoplazza-Cluade-0819
+      - FEISHU_APP_ID=cli_a916d2554038dcb3
+      - FEISHU_APP_SECRET=lXP7VcwRiIoCO4MNXy68WdJLXPHDBFG4
+      - FEISHU_PROJECT_KEY=research__development
+      - FEISHU_MCP_KEY=m-42d1d9e6-efdb-488a-8509-87facc5f43e2
     volumes:
       - backend_logs:/app/logs
 

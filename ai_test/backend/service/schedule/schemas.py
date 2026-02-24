@@ -5,6 +5,89 @@ from decimal import Decimal
 from pydantic import BaseModel, Field
 
 
+# ==================== 测试阶段标签（按软件测试流程正序） ====================
+
+PROGRESS_STAGE_TAGS = [
+    {"key": "requirement_clarify", "label": "参与需求澄清"},
+    {"key": "tech_review", "label": "参与技术评审"},
+    {"key": "case_writing", "label": "用例编写"},
+    {"key": "case_review", "label": "用例评审"},
+    {"key": "smoke_test", "label": "冒烟测试"},
+    {"key": "first_round_test", "label": "一轮测试"},
+    {"key": "functional_test", "label": "功能测试"},
+    {"key": "exploratory_test", "label": "探索性测试"},
+    {"key": "cross_test", "label": "交叉测试"},
+    {"key": "regression_test", "label": "回归测试"},
+    {"key": "bug_verify", "label": "Bug验证"},
+]
+
+PROGRESS_STATUS_OPTIONS = [
+    {"key": "normal", "label": "正常推进"},
+    {"key": "blocked", "label": "阻塞等待"},
+    {"key": "ahead", "label": "提前完成"},
+    {"key": "delayed", "label": "进度延迟"},
+]
+
+# ==================== 需求状态枚举（对齐飞书项目） ====================
+
+REQUIREMENT_STATUS_OPTIONS = [
+    {"key": "paused", "label": "暂停"},
+    {"key": "clarified_pending_review", "label": "已澄清&待技术评审"},
+    {"key": "pending", "label": "待排期"},
+    {"key": "scheduled", "label": "已排期待开发"},
+    {"key": "developing", "label": "开发中"},
+    {"key": "submitted_testing", "label": "已提测"},
+    {"key": "testing", "label": "测试中"},
+    {"key": "test_done_pending_release", "label": "测试完成待发布"},
+    {"key": "gray_ab_testing", "label": "灰度/AB中"},
+    {"key": "released", "label": "已上线"},
+    {"key": "no_test_needed", "label": "免测"},
+]
+
+# ==================== 智能状态映射 ====================
+
+# 测试阶段 → 需求状态（取选中阶段中最高的映射）
+STAGE_TO_REQUIREMENT_STATUS = {
+    "requirement_clarify": "clarified_pending_review",
+    "tech_review": "pending",
+    "case_writing": None,
+    "case_review": None,
+    "smoke_test": "testing",
+    "first_round_test": "testing",
+    "functional_test": "testing",
+    "exploratory_test": "testing",
+    "cross_test": "testing",
+    "regression_test": "testing",
+    "bug_verify": "testing",
+}
+
+# 测试阶段 → 用例状态
+STAGE_TO_CASE_STATUS = {
+    "requirement_clarify": None,
+    "tech_review": None,
+    "case_writing": "in_progress",
+    "case_review": "in_progress",
+    "smoke_test": "completed",
+    "first_round_test": "completed",
+    "functional_test": "completed",
+    "exploratory_test": "completed",
+    "cross_test": "completed",
+    "regression_test": "completed",
+    "bug_verify": "completed",
+}
+
+# 未进入正式测试的阶段（不需要填写用例/Bug数据即可提交）
+PRE_TESTING_STAGES = {"requirement_clarify", "tech_review", "case_writing", "case_review"}
+FORMAL_TESTING_STAGES = {"smoke_test", "first_round_test", "functional_test", "exploratory_test", "cross_test", "regression_test", "bug_verify"}
+
+# 阶段优先级顺序（index越大优先级越高，用于确定最高阶段）
+STAGE_PRIORITY_ORDER = [
+    "requirement_clarify", "tech_review", "case_writing", "case_review",
+    "smoke_test", "first_round_test", "functional_test", "exploratory_test",
+    "cross_test", "regression_test", "bug_verify",
+]
+
+
 # ==================== 迭代相关 ====================
 
 class IterationCreateRequest(BaseModel):
@@ -127,20 +210,17 @@ class ScheduleItemListResponse(BaseModel):
 # ==================== 日报相关 ====================
 
 class DailyReportCreateRequest(BaseModel):
-    """提交日报请求"""
+    """同步测试进度请求"""
     schedule_item_id: int = Field(..., description="关联排期条目ID")
-    today_progress: str = Field(..., min_length=1, description="今日进展")
+    today_progress: str = Field(..., min_length=1, description="今日进展（JSON格式或纯文本）")
     next_plan: Optional[str] = Field(None, description="明日计划")
-    # 可选：手动填写的Bug概况
+    stage_tags: Optional[List[str]] = Field(None, description="测试阶段标签列表（用于智能同步状态）")
+    # Bug/用例数据会从缺陷表自动统计，也支持手动覆盖
     bug_total: Optional[int] = Field(None, description="Bug总数")
     bug_open: Optional[int] = Field(None, description="待处理Bug数")
     bug_fixed: Optional[int] = Field(None, description="已修复Bug数")
     bug_closed: Optional[int] = Field(None, description="已关闭Bug数")
-    # 可选：手动填写的用例概况
-    case_total: Optional[int] = Field(None, description="用例总数")
-    case_executed: Optional[int] = Field(None, description="已执行用例数")
-    case_passed: Optional[int] = Field(None, description="通过用例数")
-    case_failed: Optional[int] = Field(None, description="失败用例数")
+    case_execution_progress: Optional[int] = Field(None, ge=0, le=100, description="用例执行进度百分比")
     actual_progress: Optional[int] = Field(None, ge=0, le=100, description="更新进度百分比")
 
 
@@ -154,10 +234,7 @@ class DailyReportResponse(BaseModel):
     report_date: date
     today_progress: str
     next_plan: Optional[str] = None
-    case_total: int = 0
-    case_executed: int = 0
-    case_passed: int = 0
-    case_failed: int = 0
+    case_execution_progress: Optional[int] = 0
     bug_total: int = 0
     bug_open: int = 0
     bug_fixed: int = 0
@@ -166,6 +243,8 @@ class DailyReportResponse(BaseModel):
     feishu_sent: bool = False
     actual_progress: int = 0
     risk_level: str = "none"
+    requirement_status: Optional[str] = None
+    case_status: Optional[str] = None
     created_at: datetime
 
 
@@ -202,12 +281,12 @@ class IterationSummaryItem(BaseModel):
     assignee_name: Optional[str] = None
     requirement_status: str
     priority: Optional[str] = None
-    case_total: int = 0
-    case_executed: int = 0
+    case_execution_progress: int = 0
     bug_total: int = 0
     bug_open: int = 0
     actual_progress: int = 0
     risk_level: str = "none"
+    case_status: Optional[str] = None
     risk_reason: Optional[str] = None
 
 
@@ -224,9 +303,6 @@ class DashboardIterationSummaryResponse(BaseModel):
     completed_requirements: int = 0
     testing_requirements: int = 0
     developing_requirements: int = 0
-    total_cases: int = 0
-    executed_cases: int = 0
-    passed_cases: int = 0
     total_bugs: int = 0
     open_bugs: int = 0
     items: List[IterationSummaryItem] = []
@@ -239,25 +315,29 @@ class DashboardIterationSummaryResponse(BaseModel):
 # ==================== 飞书Webhook相关 ====================
 
 class FeishuWebhookCreateRequest(BaseModel):
-    """创建飞书Webhook请求"""
+    """创建需求群Webhook请求"""
     name: str = Field(..., min_length=1, max_length=100, description="群名称")
     webhook_url: str = Field(..., min_length=1, max_length=500, description="Webhook URL")
+    linked_schedule_item_ids: Optional[List[int]] = Field(None, description="关联排期条目（需求）ID列表")
 
 
 class FeishuWebhookUpdateRequest(BaseModel):
-    """更新飞书Webhook请求"""
+    """更新需求群Webhook请求"""
     name: Optional[str] = Field(None, max_length=100)
     webhook_url: Optional[str] = Field(None, max_length=500)
     is_active: Optional[bool] = None
+    linked_schedule_item_ids: Optional[List[int]] = Field(None, description="关联排期条目（需求）ID列表")
 
 
 class FeishuWebhookResponse(BaseModel):
-    """飞书Webhook响应"""
+    """需求群Webhook响应"""
     id: int
     project_id: int
     name: str
     webhook_url: str
     is_active: bool
+    linked_schedule_item_ids: Optional[List[int]] = None
+    linked_requirement_names: Optional[List[str]] = None
     created_by_id: int
     created_by_name: Optional[str] = None
     created_at: datetime
@@ -265,7 +345,7 @@ class FeishuWebhookResponse(BaseModel):
 
 
 class FeishuWebhookListResponse(BaseModel):
-    """飞书Webhook列表响应"""
+    """需求群Webhook列表响应"""
     webhooks: List[FeishuWebhookResponse]
     total: int
 
@@ -276,3 +356,96 @@ class FeishuSendRequest(BaseModel):
     """飞书推送请求"""
     webhook_ids: List[int] = Field(..., description="要推送的Webhook ID列表")
     report_id: int = Field(..., description="日报ID")
+
+
+# ==================== AI报告编辑相关 ====================
+
+class AiReportUpdateRequest(BaseModel):
+    """编辑AI报告内容"""
+    ai_report_content: str = Field(..., description="编辑后的AI报告内容")
+
+
+# ==================== 进度计算相关 ====================
+
+class ProgressCalculateRequest(BaseModel):
+    """进度计算请求"""
+    schedule_item_id: int = Field(..., description="排期条目ID")
+    stage_tags: List[str] = Field(default=[], description="测试阶段标签")
+    progress_status: Optional[str] = Field(None, description="进度状态")
+    case_execution_progress: Optional[int] = Field(None, ge=0, le=100, description="用例执行进度百分比")
+
+
+class ProgressCalculateResponse(BaseModel):
+    """进度计算响应"""
+    suggested_progress: int = Field(..., description="AI建议进度")
+    factors: List[str] = Field(default=[], description="计算因子说明")
+
+
+# ==================== 缺陷管理相关 ====================
+
+class DefectCreateRequest(BaseModel):
+    """创建缺陷单请求"""
+    schedule_item_id: int = Field(..., description="关联排期条目（需求）ID")
+    title: str = Field(..., min_length=1, max_length=500, description="缺陷标题")
+    description: str = Field("", description="缺陷描述")
+    defect_type: str = Field("functional", description="缺陷类型")
+    severity: str = Field("P2", description="严重程度 P0/P1/P2/P3")
+    assignee_id: Optional[int] = Field(None, description="经办人（开发）ID")
+    reproduce_steps: Optional[str] = Field(None, description="复现步骤")
+    expected_result: Optional[str] = Field(None, description="预期结果")
+    actual_result: Optional[str] = Field(None, description="实际结果")
+
+
+class DefectUpdateRequest(BaseModel):
+    """更新缺陷单请求"""
+    title: Optional[str] = Field(None, max_length=500)
+    description: Optional[str] = None
+    defect_type: Optional[str] = None
+    severity: Optional[str] = None
+    defect_status: Optional[str] = None
+    assignee_id: Optional[int] = None
+    reproduce_steps: Optional[str] = None
+    expected_result: Optional[str] = None
+    actual_result: Optional[str] = None
+
+
+class DefectResponse(BaseModel):
+    """缺陷单响应"""
+    id: int
+    schedule_item_id: int
+    requirement_title: Optional[str] = None
+    title: str
+    description: str
+    defect_type: str
+    severity: str
+    defect_status: str
+    assignee_id: Optional[int] = None
+    assignee_name: Optional[str] = None
+    reporter_id: int
+    reporter_name: Optional[str] = None
+    screenshots: Optional[List[str]] = None
+    reproduce_steps: Optional[str] = None
+    expected_result: Optional[str] = None
+    actual_result: Optional[str] = None
+    feishu_ticket_url: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DefectListResponse(BaseModel):
+    """缺陷列表响应"""
+    defects: List[DefectResponse]
+    total: int
+
+
+class DefectStatsResponse(BaseModel):
+    """缺陷统计响应"""
+    total: int = 0
+    open: int = 0
+    fixing: int = 0
+    fixed: int = 0
+    verified: int = 0
+    closed: int = 0
+    rejected: int = 0
+    by_severity: Dict[str, int] = {}
+    by_type: Dict[str, int] = {}

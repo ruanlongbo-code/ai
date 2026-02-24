@@ -124,6 +124,7 @@ class ApiTestCase(Model):
     preconditions = fields.JSONField(null=True, description="前置步骤列表", default=[])
     request = fields.JSONField(null=True, description="主请求信息")
     assertions = fields.JSONField(null=True, description="断言信息")
+    test_data = fields.JSONField(null=True, description="数据驱动测试数据集", default=None)
     status = fields.CharField(
         max_length=20,
         default='pending',
@@ -142,4 +143,102 @@ class ApiTestCase(Model):
     class Meta:
         table = "api_test_case"
         table_description = "API测试用例表"
+
+
+class QuickDebugHistory(Model):
+    """快捷调试请求历史记录"""
+    id = fields.IntField(pk=True, description="主键ID")
+    name = fields.CharField(max_length=255, null=True, description="请求名称备注")
+    method = fields.CharField(max_length=10, description="HTTP请求方法")
+    url = fields.TextField(description="请求URL（含路径）")
+    headers = fields.JSONField(null=True, description="请求头", default={})
+    params = fields.JSONField(null=True, description="查询参数", default={})
+    body = fields.JSONField(null=True, description="请求体", default=None)
+    body_type = fields.CharField(max_length=20, default='json', description="请求体类型 json/form/text/none")
+    response_status = fields.IntField(null=True, description="响应状态码")
+    response_headers = fields.JSONField(null=True, description="响应头")
+    response_body = fields.TextField(null=True, description="响应体（截断保存）")
+    response_time = fields.FloatField(null=True, description="响应耗时（毫秒）")
+    response_size = fields.IntField(null=True, description="响应大小（字节）")
+    created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
+    # 外键关联
+    project = fields.ForeignKeyField(
+        'models.Project',
+        related_name='quick_debug_histories',
+        on_delete=fields.CASCADE,
+        description="所属项目"
+    )
+    user = fields.ForeignKeyField(
+        'models.User',
+        related_name='quick_debug_histories',
+        on_delete=fields.CASCADE,
+        description="操作用户"
+    )
+
+    class Meta:
+        table = "quick_debug_history"
+        table_description = "快捷调试请求历史记录"
+
+
+class ScheduledTask(Model):
+    """定时/CI触发执行任务"""
+    id = fields.IntField(pk=True, description="主键ID")
+    name = fields.CharField(max_length=200, description="定时任务名称")
+    task_type = fields.CharField(max_length=20, default='cron', description="触发类型 cron/ci/manual")
+    cron_expression = fields.CharField(max_length=100, null=True, description="Cron表达式（如 0 8 * * *）")
+    test_task = fields.ForeignKeyField(
+        'models.TestTask',
+        related_name='scheduled_tasks',
+        on_delete=fields.CASCADE,
+        description="关联的测试任务/计划"
+    )
+    environment = fields.ForeignKeyField(
+        'models.TestEnvironment',
+        related_name='scheduled_tasks',
+        on_delete=fields.CASCADE,
+        description="执行环境"
+    )
+    is_active = fields.BooleanField(default=True, description="是否启用")
+    last_run_at = fields.DatetimeField(null=True, description="上次执行时间")
+    next_run_at = fields.DatetimeField(null=True, description="下次执行时间")
+    created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
+    updated_at = fields.DatetimeField(auto_now=True, description="更新时间")
+    project = fields.ForeignKeyField(
+        'models.Project',
+        related_name='scheduled_tasks',
+        on_delete=fields.CASCADE,
+        description="所属项目"
+    )
+    creator = fields.ForeignKeyField(
+        'models.User',
+        related_name='created_scheduled_tasks',
+        on_delete=fields.CASCADE,
+        description="创建人"
+    )
+
+    class Meta:
+        table = "scheduled_task"
+        table_description = "定时/CI触发执行任务"
+
+
+class WebhookConfig(Model):
+    """Webhook 通知配置"""
+    id = fields.IntField(pk=True, description="主键ID")
+    name = fields.CharField(max_length=200, description="通知名称")
+    webhook_url = fields.TextField(description="Webhook URL")
+    webhook_type = fields.CharField(max_length=20, default='feishu', description="通知类型 feishu/dingtalk/custom")
+    trigger_on = fields.CharField(max_length=30, default='always', description="触发条件 always/on_failure/on_success")
+    is_active = fields.BooleanField(default=True, description="是否启用")
+    created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
+    updated_at = fields.DatetimeField(auto_now=True, description="更新时间")
+    project = fields.ForeignKeyField(
+        'models.Project',
+        related_name='webhook_configs',
+        on_delete=fields.CASCADE,
+        description="所属项目"
+    )
+
+    class Meta:
+        table = "webhook_config"
+        table_description = "Webhook通知配置"
 

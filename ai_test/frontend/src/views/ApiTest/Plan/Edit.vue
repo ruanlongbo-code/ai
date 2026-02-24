@@ -34,16 +34,16 @@
                     </el-icon>
                     编辑计划
                   </el-button>
-                  <el-button
-                      type="primary"
-                      :loading="runningTest"
-                      @click="runTask"
-                  >
-                    <el-icon>
-                      <VideoPlay/>
-                    </el-icon>
-                    运行计划
-                  </el-button>
+                <el-button
+                    type="primary"
+                    :loading="runningTest"
+                    @click="runTask"
+                >
+                  <el-icon>
+                    <VideoPlay/>
+                  </el-icon>
+                  运行计划
+                </el-button>
                 </template>
                 <!-- 编辑态：显示保存和取消按钮 -->
                 <template v-else>

@@ -441,8 +441,8 @@ const stopGeneration = () => {
 }
 
 const viewGeneratedCases = () => {
-  // 跳转至测试用例列表（按接口过滤）
-  router.push({ name: 'ApiTestCases', params: { projectId: projectId.value }, query: { interfaceId: interfaceId.value } })
+  // 跳转至自动化用例列表（按接口过滤）
+  router.push({ name: 'ApiTestAutoCase', query: { interfaceId: interfaceId.value } })
 }
 
 onMounted(() => {

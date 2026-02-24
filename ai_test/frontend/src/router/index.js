@@ -85,10 +85,22 @@ const routes = [
         meta: { title: '功能用例', icon: 'List' }
       },
       {
+        path: 'function-test/defect',
+        name: 'FunctionTestDefect',
+        component: () => import('../views/FunctionTest/Defect/Index.vue'),
+        meta: { title: '缺陷管理', icon: 'Warning' }
+      },
+      {
         path: 'function-test/case/generate/:requirementId',
         name: 'FunctionTestCaseGenerate',
         component: () => import('../views/FunctionTest/Case/Generate.vue'),
         meta: { title: '功能用例生成', icon: 'Magic' }
+      },
+      {
+        path: 'function-test/case-set/:caseSetId',
+        name: 'FunctionTestCaseSetDetail',
+        component: () => import('../views/FunctionTest/Case/CaseSetDetail.vue'),
+        meta: { title: '用例集详情', icon: 'Folder' }
       },
       // 接口测试
       {
@@ -169,6 +181,34 @@ const routes = [
         component: () => import('../views/ApiTest/Plan/Edit.vue'),
         meta: { title: '编辑测试计划', icon: 'Edit' }
       },
+      // Phase 1: 快捷调试
+      {
+        path: 'api-test/quick-debug',
+        name: 'ApiQuickDebug',
+        component: () => import('../views/ApiTest/QuickDebug/Index.vue'),
+        meta: { title: '快捷调试', icon: 'Lightning' }
+      },
+      // Phase 2: 定时任务
+      {
+        path: 'api-test/scheduled-tasks',
+        name: 'ApiScheduledTasks',
+        component: () => import('../views/ApiTest/ScheduledTask/Index.vue'),
+        meta: { title: '定时任务', icon: 'Timer' }
+      },
+      // Phase 3: Webhook通知配置
+      {
+        path: 'api-test/webhook-config',
+        name: 'ApiWebhookConfig',
+        component: () => import('../views/ApiTest/WebhookConfig/Index.vue'),
+        meta: { title: '通知配置', icon: 'Bell' }
+      },
+      // Phase 3: 增强执行报告
+      {
+        path: 'api-test/execution-report/:projectId/:runId',
+        name: 'ApiExecutionReport',
+        component: () => import('../views/ApiTest/ExecutionReport/Index.vue'),
+        meta: { title: '执行报告', icon: 'DataAnalysis' }
+      },
       {
         path: 'test-execution/task-run/:projectId/:runId',
         name: 'TaskRunReport',
@@ -205,7 +245,7 @@ const routes = [
         path: 'schedule/daily-report',
         name: 'ScheduleDailyReport',
         component: () => import('../views/Schedule/DailyReport/Index.vue'),
-        meta: { title: '测试日报', icon: 'Edit' }
+        meta: { title: '同步进度', icon: 'Edit' }
       },
       {
         path: 'schedule/dashboard',
@@ -217,7 +257,7 @@ const routes = [
         path: 'schedule/feishu',
         name: 'ScheduleFeishu',
         component: () => import('../views/Schedule/Feishu/Index.vue'),
-        meta: { title: '飞书群集成', icon: 'ChatDotRound' }
+        meta: { title: '需求群管理', icon: 'ChatDotRound' }
       },
       // 用户管理
       {
@@ -244,6 +284,14 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+// 路由切换后重置内容区域滚动位置
+router.afterEach(() => {
+  const mainContent = document.querySelector('.main-content')
+  if (mainContent) {
+    mainContent.scrollTop = 0
+  }
 })
 
 // 路由守卫

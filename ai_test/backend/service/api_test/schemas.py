@@ -395,7 +395,7 @@ class ApiInterfaceDetailResponse(BaseModel):
 class ApiBaseCaseItem(BaseModel):
     """基础用例项模型"""
     id: int = Field(..., description="用例ID")
-    interface_id: str = Field(..., description="关联接口ID")
+    interface_id: int = Field(..., description="关联接口ID")
     interface_name: Optional[str] = Field(None, description="接口名称")
     name: str = Field(..., description="测试用例名称")
     steps: List[Dict[str, Any]] = Field(..., description="测试步骤列表")
@@ -607,6 +607,243 @@ class ApiTestCaseGenerateResponse(BaseModel):
     interface_info: Optional[Dict[str, Any]] = Field(None, description="接口信息")
     test_environment_info: Optional[Dict[str, Any]] = Field(None, description="测试环境信息")
     dependencies: Optional[List[Dict[str, Any]]] = Field(None, description="依赖信息")
+
+    class Config:
+        from_attributes = True
+
+
+# ==================== Phase 1: 快捷调试 + 请求历史 ====================
+
+class QuickDebugRequest(BaseModel):
+    """快捷调试发送请求"""
+    method: str = Field(..., description="HTTP方法 GET/POST/PUT/DELETE/PATCH")
+    url: str = Field(..., description="完整请求URL")
+    headers: Optional[Dict[str, str]] = Field(default_factory=dict, description="请求头")
+    params: Optional[Dict[str, str]] = Field(default_factory=dict, description="查询参数")
+    body: Optional[Any] = Field(None, description="请求体")
+    body_type: str = Field('json', description="请求体类型 json/form/text/none")
+    name: Optional[str] = Field(None, description="请求名称备注")
+
+    class Config:
+        from_attributes = True
+
+
+class QuickDebugResponse(BaseModel):
+    """快捷调试响应"""
+    history_id: int = Field(..., description="请求历史记录ID")
+    status_code: Optional[int] = Field(None, description="响应状态码")
+    response_headers: Optional[Dict[str, str]] = Field(None, description="响应头")
+    response_body: Optional[str] = Field(None, description="响应体")
+    response_time: Optional[float] = Field(None, description="响应耗时（毫秒）")
+    response_size: Optional[int] = Field(None, description="响应大小（字节）")
+    error: Optional[str] = Field(None, description="错误信息（请求失败时）")
+
+    class Config:
+        from_attributes = True
+
+
+class QuickDebugHistoryItem(BaseModel):
+    """请求历史记录项"""
+    id: int = Field(..., description="记录ID")
+    name: Optional[str] = Field(None, description="请求名称")
+    method: str = Field(..., description="HTTP方法")
+    url: str = Field(..., description="请求URL")
+    body_type: str = Field('json', description="请求体类型")
+    response_status: Optional[int] = Field(None, description="响应状态码")
+    response_time: Optional[float] = Field(None, description="响应耗时（毫秒）")
+    created_at: datetime = Field(..., description="请求时间")
+
+    class Config:
+        from_attributes = True
+
+
+class QuickDebugHistoryListResponse(BaseModel):
+    """请求历史列表响应"""
+    items: List[QuickDebugHistoryItem] = Field(..., description="历史记录列表")
+    total: int = Field(..., description="总数")
+
+    class Config:
+        from_attributes = True
+
+
+class QuickDebugHistoryDetail(BaseModel):
+    """请求历史详情"""
+    id: int = Field(..., description="记录ID")
+    name: Optional[str] = Field(None, description="请求名称")
+    method: str = Field(..., description="HTTP方法")
+    url: str = Field(..., description="请求URL")
+    headers: Optional[Dict[str, str]] = Field(None, description="请求头")
+    params: Optional[Dict[str, str]] = Field(None, description="查询参数")
+    body: Optional[Any] = Field(None, description="请求体")
+    body_type: str = Field('json', description="请求体类型")
+    response_status: Optional[int] = Field(None, description="响应状态码")
+    response_headers: Optional[Dict[str, str]] = Field(None, description="响应头")
+    response_body: Optional[str] = Field(None, description="响应体")
+    response_time: Optional[float] = Field(None, description="响应耗时（毫秒）")
+    response_size: Optional[int] = Field(None, description="响应大小（字节）")
+    created_at: datetime = Field(..., description="请求时间")
+
+    class Config:
+        from_attributes = True
+
+
+class CurlImportRequest(BaseModel):
+    """cURL导入请求"""
+    curl_command: str = Field(..., description="cURL命令字符串")
+
+    class Config:
+        from_attributes = True
+
+
+class CurlImportResponse(BaseModel):
+    """cURL导入解析结果"""
+    method: str = Field(..., description="HTTP方法")
+    url: str = Field(..., description="请求URL")
+    headers: Dict[str, str] = Field(default_factory=dict, description="请求头")
+    params: Dict[str, str] = Field(default_factory=dict, description="查询参数")
+    body: Optional[Any] = Field(None, description="请求体")
+    body_type: str = Field('json', description="请求体类型")
+
+    class Config:
+        from_attributes = True
+
+
+class CurlExportResponse(BaseModel):
+    """cURL导出响应"""
+    curl_command: str = Field(..., description="生成的cURL命令")
+
+    class Config:
+        from_attributes = True
+
+
+# ==================== Phase 2: 定时任务/CI触发 ====================
+
+class ScheduledTaskCreateRequest(BaseModel):
+    """创建定时任务请求"""
+    name: str = Field(..., max_length=200, description="任务名称")
+    task_type: str = Field('cron', description="触发类型 cron/ci")
+    cron_expression: Optional[str] = Field(None, description="Cron表达式")
+    test_task_id: int = Field(..., description="关联的测试任务/计划ID")
+    environment_id: int = Field(..., description="执行环境ID")
+    is_active: bool = Field(True, description="是否启用")
+
+    class Config:
+        from_attributes = True
+
+
+class ScheduledTaskResponse(BaseModel):
+    """定时任务响应"""
+    id: int = Field(..., description="定时任务ID")
+    name: str = Field(..., description="任务名称")
+    task_type: str = Field(..., description="触发类型")
+    cron_expression: Optional[str] = Field(None, description="Cron表达式")
+    test_task_id: int = Field(..., description="关联测试任务ID")
+    test_task_name: Optional[str] = Field(None, description="关联测试任务名称")
+    environment_id: int = Field(..., description="执行环境ID")
+    environment_name: Optional[str] = Field(None, description="环境名称")
+    is_active: bool = Field(..., description="是否启用")
+    last_run_at: Optional[datetime] = Field(None, description="上次执行时间")
+    next_run_at: Optional[datetime] = Field(None, description="下次执行时间")
+    created_at: datetime = Field(..., description="创建时间")
+
+    class Config:
+        from_attributes = True
+
+
+class ScheduledTaskUpdateRequest(BaseModel):
+    """更新定时任务请求"""
+    name: Optional[str] = Field(None, max_length=200, description="任务名称")
+    task_type: Optional[str] = Field(None, description="触发类型")
+    cron_expression: Optional[str] = Field(None, description="Cron表达式")
+    test_task_id: Optional[int] = Field(None, description="关联测试任务ID")
+    environment_id: Optional[int] = Field(None, description="执行环境ID")
+    is_active: Optional[bool] = Field(None, description="是否启用")
+
+    class Config:
+        from_attributes = True
+
+
+class ScheduledTaskListResponse(BaseModel):
+    """定时任务列表响应"""
+    items: List[ScheduledTaskResponse] = Field(..., description="定时任务列表")
+    total: int = Field(..., description="总数")
+
+    class Config:
+        from_attributes = True
+
+
+class CiTriggerRequest(BaseModel):
+    """CI触发执行请求"""
+    task_id: int = Field(..., description="定时任务ID或测试任务ID")
+    trigger_type: str = Field('scheduled', description="触发来源 scheduled/ci_webhook/manual")
+
+    class Config:
+        from_attributes = True
+
+
+class CiTriggerResponse(BaseModel):
+    """CI触发执行响应"""
+    task_run_id: int = Field(..., description="任务执行记录ID")
+    status: str = Field(..., description="执行状态")
+    message: str = Field(..., description="响应消息")
+
+    class Config:
+        from_attributes = True
+
+
+class CurlToInterfaceRequest(BaseModel):
+    """cURL导入为接口请求"""
+    curl_command: str = Field(..., description="cURL命令字符串")
+    summary: Optional[str] = Field(None, description="接口描述")
+
+    class Config:
+        from_attributes = True
+
+
+# ==================== Phase 3: Webhook通知配置 ====================
+
+class WebhookConfigCreateRequest(BaseModel):
+    """创建Webhook配置请求"""
+    name: str = Field(..., max_length=200, description="通知名称")
+    webhook_url: str = Field(..., description="Webhook URL")
+    webhook_type: str = Field('feishu', description="通知类型 feishu/dingtalk/custom")
+    trigger_on: str = Field('always', description="触发条件 always/on_failure/on_success")
+    is_active: bool = Field(True, description="是否启用")
+
+    class Config:
+        from_attributes = True
+
+
+class WebhookConfigResponse(BaseModel):
+    """Webhook配置响应"""
+    id: int = Field(..., description="配置ID")
+    name: str = Field(..., description="通知名称")
+    webhook_url: str = Field(..., description="Webhook URL")
+    webhook_type: str = Field(..., description="通知类型")
+    trigger_on: str = Field(..., description="触发条件")
+    is_active: bool = Field(..., description="是否启用")
+    created_at: datetime = Field(..., description="创建时间")
+
+    class Config:
+        from_attributes = True
+
+
+class WebhookConfigUpdateRequest(BaseModel):
+    """更新Webhook配置请求"""
+    name: Optional[str] = Field(None, max_length=200, description="通知名称")
+    webhook_url: Optional[str] = Field(None, description="Webhook URL")
+    webhook_type: Optional[str] = Field(None, description="通知类型")
+    trigger_on: Optional[str] = Field(None, description="触发条件")
+    is_active: Optional[bool] = Field(None, description="是否启用")
+
+    class Config:
+        from_attributes = True
+
+
+class WebhookConfigListResponse(BaseModel):
+    """Webhook配置列表响应"""
+    items: List[WebhookConfigResponse] = Field(..., description="Webhook配置列表")
+    total: int = Field(..., description="总数")
 
     class Config:
         from_attributes = True

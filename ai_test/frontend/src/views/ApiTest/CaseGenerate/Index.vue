@@ -5,9 +5,9 @@
       <div class="breadcrumb-section">
         <el-breadcrumb separator="/">
           <el-breadcrumb-item>
-            <router-link to="/api-test/management">
+            <a href="javascript:void(0)" @click="goBack">
               接口管理
-            </router-link>
+            </a>
           </el-breadcrumb-item>
           <el-breadcrumb-item>{{ generateTypeText }}生成</el-breadcrumb-item>
         </el-breadcrumb>
@@ -173,13 +173,14 @@ import { ElMessage } from 'element-plus'
 import { ArrowLeft, Loading, CircleCheck, CircleClose, MagicStick } from '@element-plus/icons-vue'
 import { getInterfaceDetail,  } from '@/api/apiTest'
 import { getTestEnvironmentDetail,getTestEnvironments } from '@/api/test_environment'
-import { useUserStore } from '@/stores'
+import { useUserStore, useProjectStore } from '@/stores'
 import ChatContainer from '@/components/ChatContainer.vue'
 import NotificationList from '@/components/NotificationList.vue'
 import JsonEditor from '@/components/JsonEditor.vue'
 import DependencyManager from '@/components/common/DependencyManager.vue'
 
 const userStore = useUserStore()
+const projectStore = useProjectStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -247,10 +248,13 @@ const formatTime = (timestamp) => {
 
 // 返回上一页
 const goBack = () => {
-  router.push({
-    name: 'ApiManagement',
-    params: { projectId: projectId.value }
-  })
+  // 使用 path 导航，更可靠
+  const pid = projectId.value || projectStore?.currentProject?.id
+  if (pid) {
+    router.push(`/project/${pid}/api-management`)
+  } else {
+    router.back()
+  }
 }
 
 // 获取接口详情
@@ -489,17 +493,15 @@ const stopGeneration = () => {
 // 查看生成的用例
 const viewGeneratedCases = () => {
   if (generateType.value === 'basic') {
-    // 跳转到基础用例列表
+    // 跳转到基础用例列表（API测试点管理）
     router.push({
       name: 'ApiTestBaseCase',
-      params: { projectId: projectId.value },
       query: { interfaceId: interfaceId.value }
     })
   } else {
-    // 跳转到测试用例列表
+    // 跳转到自动化用例列表
     router.push({
-      name: 'ApiTestCases',
-      params: { projectId: projectId.value },
+      name: 'ApiTestAutoCase',
       query: { interfaceId: interfaceId.value }
     })
   }

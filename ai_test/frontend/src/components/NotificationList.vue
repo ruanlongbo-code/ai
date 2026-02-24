@@ -14,7 +14,7 @@
       </div>
     </div>
     
-    <div class="notification-content">
+    <div ref="notificationContentRef" class="notification-content">
       <div v-if="notifications.length === 0" class="empty-notifications">
         <el-empty description="暂无生成进度" :image-size="80" />
       </div>
@@ -62,7 +62,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { 
   Delete, 
   VideoPlay, 
@@ -78,6 +78,24 @@ const props = defineProps({
     default: () => []
   }
 })
+
+// 自动滚动到底部
+const notificationContentRef = ref(null)
+
+const scrollToBottom = async () => {
+  await nextTick()
+  if (notificationContentRef.value) {
+    notificationContentRef.value.scrollTop = notificationContentRef.value.scrollHeight
+  }
+}
+
+// 监听通知数量变化，自动滚动
+watch(
+  () => props.notifications.length,
+  () => {
+    scrollToBottom()
+  }
+)
 
 // Emits
 const emit = defineEmits(['clear', 'mark-read', 'mark-all-read'])
@@ -162,7 +180,8 @@ const getDisplayMessage = (message) => {
 
 // 暴露方法给父组件
 defineExpose({
-  markAllAsRead
+  markAllAsRead,
+  scrollToBottom
 })
 </script>
 

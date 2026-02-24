@@ -10,11 +10,13 @@ import re
 import asyncio
 import logging
 import traceback
-from .models import RequirementDoc, FunctionalCase
+from .models import RequirementDoc, FunctionalCase, FunctionalCaseSet
 from .schemas import (RequirementCreateRequest, RequirementResponse, RequirementUpdateRequest, RequirementDetailItem,
                       RequirementDetailListResponse, RequirementReviewRequest,
     FunctionalCaseSimple, FunctionalCaseListResponse, FunctionalCaseCreateRequest,
-    FunctionalCaseUpdateRequest, FunctionalCaseResponse, FunctionalCaseReviewRequest)
+    FunctionalCaseUpdateRequest, FunctionalCaseResponse, FunctionalCaseReviewRequest,
+    FunctionalCaseSetSimple, FunctionalCaseSetListResponse, FunctionalCaseSetDetailResponse,
+    FunctionalCaseSetCreateRequest, FunctionalCaseSetUpdateRequest, ScenarioCaseGroup)
 from service.user.models import User
 from service.project.models import Project, ProjectModule
 from utils.permissions import verify_admin_or_project_owner, verify_admin_or_project_member, \
@@ -29,26 +31,15 @@ router = APIRouter()
 @router.post("/requirements", response_model=RequirementResponse, summary="添加需求")
 async def create_requirement(
         requirement_data: RequirementCreateRequest,
-        project_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
 ):
     """
     添加需求接口
-    
-    权限要求：
-    - 只有项目的负责人和管理员才能添加需求
-    
-    业务逻辑：
-    - 需求的创建人为当前请求的用户
-    
-    参数：
-    - requirement_data: 需求创建请求数据
     """
     project, current_user = project_user
 
     try:
-        # 如果指定了模块ID，需要验证模块是否存在
         if requirement_data.module_id:
-            # 查询模块是否存在
             module = await ProjectModule.get_or_none(id=requirement_data.module_id)
             if not module:
                 raise HTTPException(
@@ -56,26 +47,42 @@ async def create_requirement(
                     detail="指定的项目模块不存在"
                 )
         else:
-            # 如果没有指定模块ID，返回错误
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="模块ID不能为空"
             )
 
-        # 使用数据库事务确保数据一致性
+        # 如果传入了 schedule_item_id，验证排期条目是否存在
+        schedule_item_id = getattr(requirement_data, 'schedule_item_id', None)
+        if schedule_item_id:
+            from service.schedule.models import ScheduleItem
+            si = await ScheduleItem.get_or_none(id=schedule_item_id)
+            if not si:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="关联的排期需求不存在"
+                )
+
         async with in_transaction() as conn:
-            # 仅保存到数据库，不再同步知识库
             requirement = await RequirementDoc.create(
                 module_id=requirement_data.module_id,
                 title=requirement_data.title,
                 doc_no=requirement_data.doc_no,
                 description=requirement_data.description,
                 priority=requirement_data.priority,
+                schedule_item_id=schedule_item_id,
                 creator_id=current_user.id,
                 status="draft",
                 using_db=conn
             )
-        # 返回创建的需求信息
+
+        # 获取关联排期需求标题
+        schedule_item_title = None
+        if requirement.schedule_item_id:
+            from service.schedule.models import ScheduleItem
+            si = await ScheduleItem.get_or_none(id=requirement.schedule_item_id)
+            schedule_item_title = si.requirement_title if si else None
+
         return RequirementResponse(
             id=requirement.id,
             module_id=requirement.module_id,
@@ -84,13 +91,14 @@ async def create_requirement(
             description=requirement.description,
             priority=requirement.priority,
             status=requirement.status,
+            schedule_item_id=requirement.schedule_item_id,
+            schedule_item_title=schedule_item_title,
             creator_id=current_user.id,
             created_at=requirement.created_at,
             updated_at=requirement.updated_at
         )
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -109,24 +117,10 @@ async def get_requirements_list(
         page_size: int = 20,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
 ):
-    """
-    获取需求详细列表接口
-    
-    权限要求：
-    - 只有项目成员和管理员可以访问需求列表
-    
-    参数：
-    - project_id: 项目ID
-    - module_id: 可选，按模块筛选
-    - status: 可选，按状态筛选
-    - priority: 可选，按优先级筛选
-    - page: 页码，默认为1
-    - page_size: 每页数量，默认为20
-    """
+    """获取需求详细列表接口"""
     project, current_user = project_user
 
     try:
-        # 获取项目所有模块
         modules = await ProjectModule.filter(project_id=project_id).all()
         module_dict = {module.id: module.name for module in modules}
         
@@ -139,7 +133,6 @@ async def get_requirements_list(
                 total_pages=0
             )
 
-        # 构建查询条件
         query_filters = {"module_id__in": list(module_dict.keys())}
         
         if module_id is not None:
@@ -159,17 +152,19 @@ async def get_requirements_list(
         if priority is not None:
             query_filters["priority"] = priority
 
-        # 获取总数
         total = await RequirementDoc.filter(**query_filters).count()
-        
-        # 计算总页数
         total_pages = (total + page_size - 1) // page_size if total > 0 else 0
-        
-        # 获取分页数据
         offset = (page - 1) * page_size
-        requirements = await RequirementDoc.filter(**query_filters).offset(offset).limit(page_size).all()
+        requirements = await RequirementDoc.filter(**query_filters).order_by('-created_at').offset(offset).limit(page_size).all()
 
-        # 构建详细需求列表
+        # 获取所有关联的排期需求标题
+        from service.schedule.models import ScheduleItem
+        schedule_item_ids = set(r.schedule_item_id for r in requirements if r.schedule_item_id)
+        schedule_item_dict = {}
+        if schedule_item_ids:
+            si_list = await ScheduleItem.filter(id__in=list(schedule_item_ids)).all()
+            schedule_item_dict = {si.id: si.requirement_title for si in si_list}
+
         detailed_requirements = []
         for requirement in requirements:
             module_name = module_dict.get(requirement.module_id, "未知模块")
@@ -181,6 +176,8 @@ async def get_requirements_list(
                     title=requirement.title,
                     priority=requirement.priority,
                     status=requirement.status,
+                    schedule_item_id=requirement.schedule_item_id,
+                    schedule_item_title=schedule_item_dict.get(requirement.schedule_item_id),
                     creator_id=requirement.creator_id,
                     created_at=requirement.created_at,
                     updated_at=requirement.updated_at
@@ -196,7 +193,6 @@ async def get_requirements_list(
         )
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -211,23 +207,10 @@ async def get_requirement_detail(
         requirement_id: int,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
 ):
-    """
-    获取需求详情接口
-    
-    权限要求：
-    - 项目成员、编辑者、负责人和管理员都可以访问
-    
-    参数：
-    - project_id: 项目ID
-    - requirement_id: 需求ID
-    
-    返回：
-    - 需求详情信息
-    """
+    """获取需求详情接口"""
     project, current_user = project_user
     
     try:
-        # 查询需求是否存在
         requirement = await RequirementDoc.get_or_none(id=requirement_id)
         if not requirement:
             raise HTTPException(
@@ -235,14 +218,19 @@ async def get_requirement_detail(
                 detail="需求不存在"
             )
 
-        # 验证需求是否属于该项目
         module = await ProjectModule.get_or_none(id=requirement.module_id)
         if not module or module.project_id != project_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="需求不属于该项目"
             )
-        
+
+        schedule_item_title = None
+        if requirement.schedule_item_id:
+            from service.schedule.models import ScheduleItem
+            si = await ScheduleItem.get_or_none(id=requirement.schedule_item_id)
+            schedule_item_title = si.requirement_title if si else None
+
         return RequirementResponse(
             id=requirement.id,
             module_id=requirement.module_id,
@@ -251,13 +239,14 @@ async def get_requirement_detail(
             description=requirement.description,
             priority=requirement.priority,
             status=requirement.status,
+            schedule_item_id=requirement.schedule_item_id,
+            schedule_item_title=schedule_item_title,
             creator_id=requirement.creator_id,
             created_at=requirement.created_at,
             updated_at=requirement.updated_at
         )
     
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -270,25 +259,12 @@ async def get_requirement_detail(
 async def delete_requirement(
         project_id: int,
         requirement_id: int,
-        project_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
-    """
-    删除需求接口
-    
-    权限要求：
-    - 只有项目负责人和管理员可以访问
-    
-    业务逻辑：
-    - 验证需求归属后，直接删除数据库记录（不再同步知识库）
-    
-    参数：
-    - project_id: 项目ID
-    - requirement_id: 需求ID
-    """
+    """删除需求接口"""
     project, current_user = project_user
 
     try:
-        # 查询需求是否存在
         requirement = await RequirementDoc.get_or_none(id=requirement_id)
         if not requirement:
             raise HTTPException(
@@ -296,20 +272,17 @@ async def delete_requirement(
                 detail="需求不存在"
             )
 
-        # 验证需求是否属于该项目
         module = await ProjectModule.get_or_none(id=requirement.module_id)
         if not module or module.project_id != project_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="需求不属于该项目"
             )
-        # 删除数据库中的需求
         await requirement.delete()
 
         return {"message": "需求删除成功"}
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -323,26 +296,12 @@ async def update_requirement(
         project_id: int,
         requirement_id: int,
         request: RequirementUpdateRequest,
-        project_user: tuple[Project, User] = Depends(verify_admin_or_project_owner)
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
-    """
-    修改需求接口
-    
-    权限要求：
-    - 只有项目负责人和管理员可以访问
-    
-    业务逻辑：
-    - 仅更新数据库中的需求信息（不再同步知识库）
-    
-    参数：
-    - project_id: 项目ID
-    - requirement_id: 需求ID
-    - request: 修改需求的请求数据
-    """
+    """修改需求接口"""
     project, current_user = project_user
 
     try:
-        # 查询需求是否存在
         requirement = await RequirementDoc.get_or_none(id=requirement_id)
         if not requirement:
             raise HTTPException(
@@ -350,7 +309,6 @@ async def update_requirement(
                 detail="需求不存在"
             )
 
-        # 验证需求是否属于该项目
         module = await ProjectModule.get_or_none(id=requirement.module_id)
         if not module or module.project_id != project_id:
             raise HTTPException(
@@ -358,13 +316,18 @@ async def update_requirement(
                 detail="需求不属于该项目"
             )
 
-        # 更新数据库中的需求
         requirement.title = request.title
         requirement.description = request.description
         requirement.priority = request.priority
         requirement.status = request.status
 
         await requirement.save()
+
+        schedule_item_title = None
+        if requirement.schedule_item_id:
+            from service.schedule.models import ScheduleItem
+            si = await ScheduleItem.get_or_none(id=requirement.schedule_item_id)
+            schedule_item_title = si.requirement_title if si else None
 
         return RequirementResponse(
             id=requirement.id,
@@ -373,13 +336,14 @@ async def update_requirement(
             description=requirement.description,
             priority=requirement.priority,
             status=requirement.status,
+            schedule_item_id=requirement.schedule_item_id,
+            schedule_item_title=schedule_item_title,
             creator_id=requirement.creator_id,
             created_at=requirement.created_at,
             updated_at=requirement.updated_at
         )
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -395,25 +359,10 @@ async def review_requirement(
         request: RequirementReviewRequest,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
-    """
-    审核需求接口
-    
-    权限要求：
-    - 项目编辑者、负责人和管理员可以审核需求
-    
-    业务逻辑：
-    - 更新需求的状态和审核意见
-    - 记录审核时间
-    
-    参数：
-    - project_id: 项目ID
-    - requirement_id: 需求ID
-    - request: 审核请求数据
-    """
+    """审核需求接口"""
     project, current_user = project_user
 
     try:
-        # 查询需求是否存在
         requirement = await RequirementDoc.get_or_none(id=requirement_id)
         if not requirement:
             raise HTTPException(
@@ -421,7 +370,6 @@ async def review_requirement(
                 detail="需求不存在"
             )
 
-        # 验证需求是否属于该项目
         module = await ProjectModule.get_or_none(id=requirement.module_id)
         if not module or module.project_id != project_id:
             raise HTTPException(
@@ -429,10 +377,14 @@ async def review_requirement(
                 detail="需求不属于该项目"
             )
 
-        # 更新需求状态
         requirement.status = request.status
-        
         await requirement.save()
+
+        schedule_item_title = None
+        if requirement.schedule_item_id:
+            from service.schedule.models import ScheduleItem
+            si = await ScheduleItem.get_or_none(id=requirement.schedule_item_id)
+            schedule_item_title = si.requirement_title if si else None
 
         return RequirementResponse(
             id=requirement.id,
@@ -441,13 +393,14 @@ async def review_requirement(
             description=requirement.description,
             priority=requirement.priority,
             status=requirement.status,
+            schedule_item_id=requirement.schedule_item_id,
+            schedule_item_title=schedule_item_title,
             creator_id=requirement.creator_id,
             created_at=requirement.created_at,
             updated_at=requirement.updated_at
         )
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -456,84 +409,322 @@ async def review_requirement(
         )
 
 
+# ==================== 排期需求列表 API ====================
+
+@router.get("/{project_id}/schedule-items-for-link", summary="获取可关联的排期需求列表")
+async def get_schedule_items_for_link(
+        project_id: int,
+        keyword: Optional[str] = Query(None, description="按需求标题搜索"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取排期管理中的需求列表，供功能测试需求关联使用"""
+    from service.schedule.models import ScheduleItem
+    project, current_user = project_user
+
+    try:
+        query = ScheduleItem.filter(iteration__project_id=project_id)
+        if keyword:
+            query = query.filter(requirement_title__icontains=keyword)
+        items = await query.order_by('-id').limit(100).all()
+        result = []
+        for item in items:
+            result.append({
+                "id": item.id,
+                "requirement_title": item.requirement_title,
+                "category": item.category,
+                "requirement_status": item.requirement_status,
+                "ticket_url": item.ticket_url,
+            })
+        return {"items": result, "total": len(result)}
+    except Exception as e:
+        logger.error(f"获取排期需求列表失败: {e}")
+        raise HTTPException(status_code=500, detail="获取排期需求列表失败")
+
+
+# ==================== 用例集 API ====================
+
+@router.get("/{project_id}/case_sets", response_model=FunctionalCaseSetListResponse, summary="获取用例集列表")
+async def get_case_sets(
+        project_id: int,
+        requirement_id: Optional[int] = None,
+        keyword: Optional[str] = None,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取项目下的用例集列表"""
+    project, current_user = project_user
+
+    try:
+        query_filters = {"project_id": project_id}
+        if requirement_id:
+            query_filters["requirement_id"] = requirement_id
+
+        case_sets = await FunctionalCaseSet.filter(**query_filters).order_by('-created_at').all()
+
+        # 获取关联需求标题和创建人
+        result = []
+        for cs in case_sets:
+            req_title = None
+            if cs.requirement_id:
+                req = await RequirementDoc.get_or_none(id=cs.requirement_id)
+                req_title = req.title if req else None
+
+            creator_name = None
+            if cs.creator_id:
+                creator = await User.get_or_none(id=cs.creator_id)
+                creator_name = creator.real_name or creator.username if creator else None
+
+            # 实时计算用例数和场景数
+            case_count = await FunctionalCase.filter(case_set_id=cs.id).count()
+            scenarios = await FunctionalCase.filter(case_set_id=cs.id).distinct().values_list('scenario', flat=True)
+            scenario_count = len([s for s in scenarios if s])
+
+            if keyword and keyword.lower() not in (cs.name or '').lower():
+                continue
+
+            result.append(FunctionalCaseSetSimple(
+                id=cs.id,
+                name=cs.name,
+                description=cs.description,
+                case_count=case_count,
+                scenario_count=scenario_count,
+                requirement_id=cs.requirement_id,
+                requirement_title=req_title,
+                creator_name=creator_name,
+                created_at=cs.created_at,
+                updated_at=cs.updated_at,
+            ))
+
+        return FunctionalCaseSetListResponse(case_sets=result, total=len(result))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取用例集列表失败: {e}")
+        raise HTTPException(status_code=500, detail="获取用例集列表失败")
+
+
+@router.get("/{project_id}/case_sets/{case_set_id}", response_model=FunctionalCaseSetDetailResponse, summary="获取用例集详情（含场景分组）")
+async def get_case_set_detail(
+        project_id: int,
+        case_set_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取用例集详情，用例按场景分组返回"""
+    project, current_user = project_user
+
+    try:
+        cs = await FunctionalCaseSet.get_or_none(id=case_set_id, project_id=project_id)
+        if not cs:
+            raise HTTPException(status_code=404, detail="用例集不存在")
+
+        req_title = None
+        if cs.requirement_id:
+            req = await RequirementDoc.get_or_none(id=cs.requirement_id)
+            req_title = req.title if req else None
+
+        creator_name = None
+        if cs.creator_id:
+            creator = await User.get_or_none(id=cs.creator_id)
+            creator_name = creator.real_name or creator.username if creator else None
+
+        # 查询用例按场景排序
+        cases = await FunctionalCase.filter(case_set_id=case_set_id).order_by('scenario_sort', 'id').all()
+
+        # 获取需求标题映射
+        requirement_ids = set(c.requirement_id for c in cases if c.requirement_id)
+        req_dict = {}
+        if requirement_ids:
+            reqs = await RequirementDoc.filter(id__in=list(requirement_ids)).all()
+            req_dict = {r.id: r.title for r in reqs}
+
+        # 获取创建人映射
+        creator_ids = set(c.creator_id for c in cases if c.creator_id)
+        creator_dict = {}
+        if creator_ids:
+            creators = await User.filter(id__in=list(creator_ids)).all()
+            creator_dict = {u.id: u.real_name or u.username for u in creators}
+
+        # 按场景分组
+        scenario_map = {}
+        for case in cases:
+            scenario_name = case.scenario or "未分类场景"
+            if scenario_name not in scenario_map:
+                scenario_map[scenario_name] = []
+            scenario_map[scenario_name].append(FunctionalCaseSimple(
+                id=case.id,
+                case_no=case.case_no,
+                case_name=case.case_name,
+                priority=case.priority,
+                status=case.status,
+                scenario=case.scenario,
+                scenario_sort=case.scenario_sort,
+                requirement_id=case.requirement_id,
+                requirement_title=req_dict.get(case.requirement_id),
+                case_set_id=case.case_set_id,
+                creator_name=creator_dict.get(case.creator_id),
+                created_at=case.created_at,
+                updated_at=case.updated_at,
+            ))
+
+        scenario_groups = [
+            ScenarioCaseGroup(scenario=name, cases=case_list)
+            for name, case_list in scenario_map.items()
+        ]
+
+        return FunctionalCaseSetDetailResponse(
+            id=cs.id,
+            name=cs.name,
+            description=cs.description,
+            case_count=len(cases),
+            scenario_count=len(scenario_groups),
+            requirement_id=cs.requirement_id,
+            requirement_title=req_title,
+            creator_name=creator_name,
+            created_at=cs.created_at,
+            updated_at=cs.updated_at,
+            scenario_groups=scenario_groups,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取用例集详情失败: {e}")
+        raise HTTPException(status_code=500, detail="获取用例集详情失败")
+
+
+@router.post("/{project_id}/case_sets", summary="创建用例集")
+async def create_case_set(
+        project_id: int,
+        data: FunctionalCaseSetCreateRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """手动创建用例集"""
+    project, current_user = project_user
+    try:
+        cs = await FunctionalCaseSet.create(
+            name=data.name,
+            description=data.description,
+            requirement_id=data.requirement_id,
+            project_id=project_id,
+            creator_id=current_user.id,
+        )
+        return {"id": cs.id, "name": cs.name, "message": "用例集创建成功"}
+    except Exception as e:
+        logger.error(f"创建用例集失败: {e}")
+        raise HTTPException(status_code=500, detail="创建用例集失败")
+
+
+@router.put("/{project_id}/case_sets/{case_set_id}", summary="更新用例集")
+async def update_case_set(
+        project_id: int,
+        case_set_id: int,
+        data: FunctionalCaseSetUpdateRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """更新用例集"""
+    project, current_user = project_user
+    try:
+        cs = await FunctionalCaseSet.get_or_none(id=case_set_id, project_id=project_id)
+        if not cs:
+            raise HTTPException(status_code=404, detail="用例集不存在")
+        if data.name is not None:
+            cs.name = data.name
+        if data.description is not None:
+            cs.description = data.description
+        await cs.save()
+        return {"id": cs.id, "name": cs.name, "message": "用例集更新成功"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新用例集失败: {e}")
+        raise HTTPException(status_code=500, detail="更新用例集失败")
+
+
+@router.delete("/{project_id}/case_sets/{case_set_id}", summary="删除用例集")
+async def delete_case_set(
+        project_id: int,
+        case_set_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """删除用例集（级联删除其下用例）"""
+    project, current_user = project_user
+    try:
+        cs = await FunctionalCaseSet.get_or_none(id=case_set_id, project_id=project_id)
+        if not cs:
+            raise HTTPException(status_code=404, detail="用例集不存在")
+        # 删除关联用例
+        await FunctionalCase.filter(case_set_id=case_set_id).delete()
+        await cs.delete()
+        return {"message": "用例集及其用例已删除"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除用例集失败: {e}")
+        raise HTTPException(status_code=500, detail="删除用例集失败")
+
+
+# ==================== 功能用例 API ====================
+
 @router.get("/{project_id}/functional_cases", response_model=FunctionalCaseListResponse, summary="获取功能用例列表")
 async def get_functional_cases_list(
         project_id: int,
         page: int = 1,
         page_size: int = 20,
         requirement_id: Optional[int] = None,
+        case_set_id: Optional[int] = None,
+        scenario: Optional[str] = None,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
 ):
-    """
-    获取功能用例列表接口
-    
-    权限要求：
-    - 只有项目成员和管理员可以访问
-    
-    业务逻辑：
-    - 获取当前项目所有的功能用例，按需求进行分组并返回
-    - 支持分页和按需求过滤
-    - 每个用例返回基本信息：ID、编号、名称、优先级、状态、关联需求ID
-    
-    参数：
-    - project_id: 项目ID
-    - page: 页码，从1开始，默认1
-    - page_size: 每页数量，默认为20，最大100
-    - requirement_id: 需求ID过滤，为空则获取所有
-    """
+    """获取功能用例列表接口"""
     project, current_user = project_user
 
-    # 验证分页参数
     if page < 1:
         page = 1
     if page_size < 1 or page_size > 100:
-        page_size = 20
+        page_size = 50
     try:
-
-        # 获取项目所有模块
         modules = await ProjectModule.filter(project_id=project_id).all()
         module_ids = [module.id for module in modules]
 
-        # 获取项目所有需求
         requirements = await RequirementDoc.filter(
             module_id__in=module_ids
         ).all()
         requirement_dict = {req.id: req.title for req in requirements}
 
-        # 构建查询条件
         query_conditions = {}
 
-        if requirement_id is not None:
-            # 如果指定了需求ID，只查询该需求下的用例
+        if case_set_id is not None:
+            query_conditions['case_set_id'] = case_set_id
+        elif requirement_id is not None:
             if requirement_id not in requirement_dict:
-                # 检查需求是否存在
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="指定的需求不存在"
                 )
             query_conditions['requirement_id'] = requirement_id
         else:
-            # 如果没有指定需求ID，查询所有需求下的用例
             query_conditions['requirement_id__in'] = list(requirement_dict.keys())
 
-        # 获取总数量（用于分页计算）
+        if scenario:
+            query_conditions['scenario'] = scenario
+
         total_count = await FunctionalCase.filter(**query_conditions).count()
 
-        # 计算总页数
-        total_pages = (total_count + page_size - 1) // page_size
-
-        # 计算偏移量
+        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
         offset = (page - 1) * page_size
-
-        # 获取分页的功能用例
         functional_cases = await FunctionalCase.filter(
             **query_conditions
-        ).offset(offset).limit(page_size).all()
+        ).order_by('scenario_sort', 'id').offset(offset).limit(page_size).all()
 
-        # 构建功能用例列表
+        # 获取创建人映射
+        creator_ids = set(c.creator_id for c in functional_cases if c.creator_id)
+        creator_dict = {}
+        if creator_ids:
+            creators = await User.filter(id__in=list(creator_ids)).all()
+            creator_dict = {u.id: u.real_name or u.username for u in creators}
+
         cases_list = []
         for case in functional_cases:
-            # 获取需求标题
             requirement_title = requirement_dict.get(case.requirement_id, None)
             
             cases_list.append(
@@ -543,8 +734,12 @@ async def get_functional_cases_list(
                     case_name=case.case_name,
                     priority=case.priority,
                     status=case.status,
+                    scenario=case.scenario,
+                    scenario_sort=case.scenario_sort,
                     requirement_id=case.requirement_id,
                     requirement_title=requirement_title,
+                    case_set_id=case.case_set_id,
+                    creator_name=creator_dict.get(case.creator_id),
                     created_at=case.created_at,
                     updated_at=case.updated_at
                 )
@@ -559,7 +754,6 @@ async def get_functional_cases_list(
         )
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -574,23 +768,10 @@ async def get_functional_case_detail(
         case_id: int,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
 ):
-    """
-    获取功能用例详情接口
-    
-    权限要求：
-    - 项目成员、编辑者、负责人和管理员都可以访问
-    
-    参数：
-    - project_id: 项目ID
-    - case_id: 功能用例ID
-    
-    返回：
-    - 功能用例详情信息
-    """
+    """获取功能用例详情接口"""
     project, current_user = project_user
     
     try:
-        # 查询功能用例是否存在
         case = await FunctionalCase.get_or_none(id=case_id)
         if not case:
             raise HTTPException(
@@ -598,7 +779,6 @@ async def get_functional_case_detail(
                 detail="功能用例不存在"
             )
 
-        # 验证功能用例是否属于该项目（通过关联需求验证）
         if case.requirement_id:
             requirement = await RequirementDoc.get_or_none(id=case.requirement_id)
             if requirement:
@@ -615,19 +795,20 @@ async def get_functional_case_detail(
             case_name=case.case_name,
             priority=case.priority,
             status=case.status,
+            scenario=case.scenario,
             preconditions=case.preconditions,
             test_steps=case.test_steps,
             test_data=case.test_data,
             expected_result=case.expected_result,
             actual_result=case.actual_result,
             requirement_id=case.requirement_id,
+            case_set_id=case.case_set_id,
             creator_id=case.creator_id,
             created_at=case.created_at,
             updated_at=case.updated_at
         )
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -643,26 +824,10 @@ async def update_functional_case(
         case_data: FunctionalCaseUpdateRequest,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
-    """
-    编辑功能用例接口
-    
-    权限要求：
-    - 只有项目负责人、项目编辑者和管理员能够编辑功能用例
-    
-    业务逻辑：
-    - 验证功能用例是否存在
-    - 验证需求是否存在（如果提供了requirement_id）
-    - 更新功能用例信息
-    
-    参数：
-    - project_id: 项目ID
-    - case_id: 功能用例ID
-    - case_data: 功能用例更新请求数据
-    """
+    """编辑功能用例接口"""
     project, current_user = project_user
 
     try:
-        # 查询功能用例是否存在
         case = await FunctionalCase.get_or_none(id=case_id)
         if not case:
             raise HTTPException(
@@ -670,10 +835,7 @@ async def update_functional_case(
                 detail="指定的功能用例不存在"
             )
 
-        # 如果提供了requirement_id，验证需求是否存在且属于当前项目
-        # 验证关联需求是否存在且属于当前项目
         if case_data.requirement_id:
-            # 通过需求id查找需求
             requirement = await RequirementDoc.get_or_none(
                 id=case_data.requirement_id,
             )
@@ -682,16 +844,13 @@ async def update_functional_case(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="指定的需求不存在"
                 )
-            # 获取需求所属的模块
             module = await requirement.module
-            # 验证模块是否属于当前项目
             if module and module.project_id != project_id:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="关联需求所属的模块不属于当前项目"
                 )
 
-        # 更新功能用例信息
         update_data = {}
         for field, value in case_data.dict(exclude_unset=True).items():
             if value is not None:
@@ -701,7 +860,6 @@ async def update_functional_case(
             await case.update_from_dict(update_data)
             await case.save()
 
-        # 重新查询更新后的用例
         updated_case = await FunctionalCase.get(id=case_id)
 
         return FunctionalCaseResponse(
@@ -710,19 +868,20 @@ async def update_functional_case(
             case_name=updated_case.case_name,
             priority=updated_case.priority,
             status=updated_case.status,
+            scenario=updated_case.scenario,
             preconditions=updated_case.preconditions,
             test_steps=updated_case.test_steps,
             test_data=updated_case.test_data,
             expected_result=updated_case.expected_result,
             actual_result=updated_case.actual_result,
             requirement_id=updated_case.requirement_id,
+            case_set_id=updated_case.case_set_id,
             creator_id=updated_case.creator_id,
             created_at=updated_case.created_at,
             updated_at=updated_case.updated_at
         )
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -737,25 +896,10 @@ async def delete_functional_case(
         case_id: int,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
-    """
-    删除功能用例接口
-    
-    权限要求：
-    - 只有项目负责人、项目编辑者和管理员可以删除功能用例
-    
-    业务逻辑：
-    - 验证功能用例是否存在
-    - 验证功能用例是否属于指定项目
-    - 删除功能用例
-    
-    参数：
-    - project_id: 项目ID
-    - case_id: 功能用例ID
-    """
+    """删除功能用例接口"""
     project, current_user = project_user
 
     try:
-        # 查询功能用例是否存在
         case = await FunctionalCase.get_or_none(id=case_id)
         if not case:
             raise HTTPException(
@@ -763,7 +907,6 @@ async def delete_functional_case(
                 detail="指定的功能用例不存在"
             )
 
-        # 验证功能用例是否属于指定项目（通过关联的需求验证）
         if case.requirement_id:
             requirement = await RequirementDoc.get_or_none(id=case.requirement_id)
             if requirement:
@@ -774,13 +917,11 @@ async def delete_functional_case(
                         detail="功能用例不属于指定项目"
                     )
 
-        # 删除功能用例
         await case.delete()
 
         return {"message": "功能用例删除成功"}
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -795,24 +936,10 @@ async def create_functional_case(
         case_data: FunctionalCaseCreateRequest,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
-    """
-    创建功能用例
-    
-    权限要求：
-    - 管理员
-    - 项目负责人
-    - 项目编辑者
-    
-    业务逻辑：
-    - 创建人默认为当前发送请求的用户
-    - 状态默认为待审核状态
-    - 实际结果默认为空字符串
-    """
+    """创建功能用例"""
     try:
         project, current_user = project_user
-        # 验证关联需求是否存在且属于当前项目
         if case_data.requirement_id:
-            # 通过需求id查找需求
             requirement = await RequirementDoc.get_or_none(
                 id=case_data.requirement_id,
             )
@@ -821,42 +948,42 @@ async def create_functional_case(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="指定的需求不存在"
                 )
-            # 获取需求所属的模块
             module = await requirement.module
-            # 验证模块是否属于当前项目
             if module and module.project_id != project_id:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="关联需求所属的模块不属于当前项目"
                 )
-        # 创建功能用例
         case = await FunctionalCase.create(
             case_no=case_data.case_no,
             case_name=case_data.case_name,
             priority=case_data.priority,
-            status="pending_review",  # 默认为待审核状态
+            status="pending_review",
+            scenario=case_data.scenario,
             preconditions=case_data.preconditions,
             test_steps=case_data.test_steps,
             test_data=case_data.test_data,
             expected_result=case_data.expected_result,
-            actual_result="",  # 默认为空字符串
+            actual_result="",
             requirement_id=case_data.requirement_id,
-            creator_id=current_user.id  # 创建人默认为当前用户
+            case_set_id=case_data.case_set_id,
+            creator_id=current_user.id
         )
 
-        # 返回创建的功能用例信息
         return FunctionalCaseResponse(
             id=case.id,
             case_no=case.case_no,
             case_name=case.case_name,
             priority=case.priority,
             status=case.status,
+            scenario=case.scenario,
             preconditions=case.preconditions,
             test_steps=case.test_steps,
             test_data=case.test_data,
             expected_result=case.expected_result,
             actual_result=case.actual_result,
             requirement_id=case.requirement_id,
+            case_set_id=case.case_set_id,
             creator_id=case.creator_id,
             created_at=case.created_at,
             updated_at=case.updated_at
@@ -879,29 +1006,10 @@ async def review_functional_case(
         review_data: FunctionalCaseReviewRequest,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
-    """
-    审核功能用例接口
-    
-    权限要求：
-    - 只有项目负责人、项目编辑者和管理员可以审核功能用例
-    
-    业务逻辑：
-    - 验证功能用例是否存在且属于指定项目
-    - 更新用例状态为审核通过(ready)或审核不通过(design)
-    - 记录审核意见（可选）
-    
-    参数：
-    - project_id: 项目ID
-    - case_id: 功能用例ID
-    - review_data: 审核请求数据（包含审核状态和意见）
-    
-    返回：
-    - 审核后的功能用例信息
-    """
+    """审核功能用例接口"""
     project, current_user = project_user
 
     try:
-        # 查询功能用例是否存在
         case = await FunctionalCase.get_or_none(id=case_id)
         if not case:
             raise HTTPException(
@@ -909,7 +1017,6 @@ async def review_functional_case(
                 detail="指定的功能用例不存在"
             )
 
-        # 验证功能用例是否属于当前项目（通过关联的需求验证）
         if case.requirement_id:
             requirement = await RequirementDoc.get_or_none(id=case.requirement_id)
             if requirement:
@@ -920,19 +1027,16 @@ async def review_functional_case(
                         detail="指定的功能用例不属于当前项目"
                     )
 
-        # 验证审核状态的有效性
-        valid_statuses = ["pass", "smoke","wait", "regression", "smoke", "obsolete"]
+        valid_statuses = ["pass", "smoke", "wait", "regression", "smoke", "obsolete"]
         if review_data.status not in valid_statuses:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"无效的审核状态，只能设置为: {', '.join(valid_statuses)}"
             )
 
-        # 更新功能用例状态
         case.status = review_data.status
         await case.save()
 
-        # 重新查询更新后的用例
         updated_case = await FunctionalCase.get(id=case_id)
 
         return FunctionalCaseResponse(
@@ -941,19 +1045,20 @@ async def review_functional_case(
             case_name=updated_case.case_name,
             priority=updated_case.priority,
             status=updated_case.status,
+            scenario=updated_case.scenario,
             preconditions=updated_case.preconditions,
             test_steps=updated_case.test_steps,
             test_data=updated_case.test_data,
             expected_result=updated_case.expected_result,
             actual_result=updated_case.actual_result,
             requirement_id=updated_case.requirement_id,
+            case_set_id=updated_case.case_set_id,
             creator_id=updated_case.creator_id,
             created_at=updated_case.created_at,
             updated_at=updated_case.updated_at
         )
 
     except HTTPException:
-        # 重新抛出HTTP异常
         raise
     except Exception as e:
         raise HTTPException(
@@ -968,29 +1073,10 @@ async def generate_test_cases_from_requirement(
         requirement_id: int,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
-    """
-    根据需求生成测试用例接口
-    
-    权限要求：
-    - 只有项目负责人、项目编辑者和管理员可以生成测试用例
-    
-    业务逻辑：
-    - 从数据库获取详细的需求数据
-    - 调用GeneratorTestCaseWorkflow生成功能测试用例
-    - 使用SSE实时流式输出生成进度
-    - 生成的用例直接保存到数据库
-    
-    参数：
-    - project_id: 项目ID
-    - requirement_id: 需求ID
-    
-    返回：
-    - SSE流式输出生成进度和结果
-    """
+    """根据需求生成测试用例接口（含场景分组和用例集）"""
     project, current_user = project_user
 
     try:
-        # 查询需求是否存在且属于当前项目
         requirement = await RequirementDoc.get_or_none(id=requirement_id)
         if not requirement:
             raise HTTPException(
@@ -998,7 +1084,6 @@ async def generate_test_cases_from_requirement(
                 detail="指定的需求不存在"
             )
 
-        # 验证需求是否属于当前项目（通过模块验证）
         module = await ProjectModule.get_or_none(id=requirement.module_id)
         if not module or module.project_id != project_id:
             raise HTTPException(
@@ -1006,7 +1091,6 @@ async def generate_test_cases_from_requirement(
                 detail="需求不属于当前项目"
             )
 
-        # 构建需求文档内容
         requirement_content = f"""
             需求标题：{requirement.title}
             需求描述：{requirement.description}
@@ -1014,53 +1098,71 @@ async def generate_test_cases_from_requirement(
             需求状态：{requirement.status}
             """
 
+        # 工作流节点 -> 进度百分比映射
+        node_progress_map = {
+            '开始执行节点': 10,
+            '测试点覆盖率验证通过': 30,
+            '测试点覆盖率验证未通过': 25,
+            '开始用例生成': 40,
+            '用例覆盖率验证通过': 70,
+            '用例覆盖率验证未通过': 60,
+            '开始保存': 80,
+            '共保存': 90,
+        }
+
         async def generate_stream():
             """生成测试用例的流式输出函数"""
             try:
-                # 发送开始生成的消息
-                yield f"data: {json.dumps({'type': 'start', 'message': '【开始生成】调用AI大模型...'}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'start', 'message': '【开始生成】调用AI大模型...', 'progress': 5}, ensure_ascii=False)}\n\n"
 
-                # 创建工作流实例
                 workflow_instance = GeneratorTestCaseWorkflow()
                 workflow = workflow_instance.create_workflow()
 
-                # 流式执行工作流
                 stream_response = workflow.stream(
                     {
                         "input_requirement": requirement_content
                     },
                     config={
-                        "requirement_id": requirement.id,
-                        "creator_id": current_user.id
+                        "metadata": {
+                            "requirement_id": requirement.id,
+                            "creator_id": current_user.id,
+                            "project_id": project_id,
+                        }
                     },
                     subgraphs=True,
                     stream_mode=["messages", "custom"]
                 )
 
                 generated_cases_count = 0
+                current_progress = 5
 
-                # 处理流式输出
                 for item in stream_response:
                     if len(item) >= 3:
                         if item[1] == "messages":
-                            # 发送进度消息
                             message = item[2][0].content if hasattr(item[2][0], 'content') else str(item[2][0])
-                            yield f"data: {json.dumps({'type': 'progress', 'message': message}, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps({'type': 'progress', 'message': message, 'progress': current_progress}, ensure_ascii=False)}\n\n"
                         elif item[1] == "custom":
-                            # 发送自定义消息
-                            yield f"data: {json.dumps({'type': 'info', 'message': str(item[2])}, ensure_ascii=False)}\n\n"
+                            custom_msg = str(item[2])
+                            # 根据关键字匹配进度百分比
+                            for keyword, pct in node_progress_map.items():
+                                if keyword in custom_msg:
+                                    current_progress = max(current_progress, pct)
+                                    break
+                            yield f"data: {json.dumps({'type': 'info', 'message': custom_msg, 'progress': current_progress}, ensure_ascii=False)}\n\n"
+                            # 从自定义消息中提取保存数量
+                            if "共保存" in custom_msg:
+                                import re as _re
+                                m = _re.search(r'共保存\s*(\d+)', custom_msg)
+                                if m:
+                                    generated_cases_count = int(m.group(1))
 
-                    # 模拟进度更新
                     await asyncio.sleep(0.1)
-                # 发送完成消息
-                yield f"data: {json.dumps({'type': 'complete', 'message': f'测试用例生成完成！共生成 {generated_cases_count} 个测试用例'}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'complete', 'message': f'测试用例生成完成！共生成 {generated_cases_count} 个测试用例（含场景分组）', 'progress': 100}, ensure_ascii=False)}\n\n"
 
             except Exception as e:
-                # 发送错误消息
                 error_message = f"生成测试用例时发生错误：{str(e)}"
-                yield f"data: {json.dumps({'type': 'error', 'message': error_message}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'error', 'message': error_message, 'progress': current_progress}, ensure_ascii=False)}\n\n"
             finally:
-                # 发送结束标记
                 yield f"data: [DONE]\n\n"
 
         return StreamingResponse(
@@ -1090,24 +1192,10 @@ async def extract_requirement_from_document(
         text: Optional[str] = Form(None, description="粘贴的文档文本内容（推荐用于飞书等需要登录的云文档）"),
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
 ):
-    """
-    从上传的文档文件、粘贴的文本内容或文档链接中，使用AI提取结构化的需求信息。
-
-    支持三种输入方式（三选一）：
-    1. 上传文件：支持 PDF、DOCX、TXT、MD 格式，最大 10MB
-    2. 粘贴文本：直接粘贴文档内容（推荐用于飞书、Notion等需要登录才能访问的云文档）
-    3. 文档链接：支持公开可访问的网页链接，会自动抓取页面内容
-
-    返回：
-    - title: 提取的需求标题
-    - description: 提取的需求描述
-    - priority: 建议的优先级（1=低, 2=中, 3=高）
-    - raw_text: 从文档中提取的原始文本（前2000字符预览）
-    """
+    """从上传的文档文件、粘贴的文本内容或文档链接中，使用AI提取结构化的需求信息。"""
     project, current_user = project_user
 
     try:
-        # 验证输入：必须提供文件、文本或链接
         if not (file and file.filename) and not text and not url:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1116,7 +1204,6 @@ async def extract_requirement_from_document(
 
         extracted_text = ""
 
-        # 方式一：从上传的文件中提取文本
         if file and file.filename:
             from utils.parser.requirement_document_parser import (
                 extract_text_from_file,
@@ -1125,7 +1212,6 @@ async def extract_requirement_from_document(
             )
             import os
 
-            # 验证文件扩展名
             ext = os.path.splitext(file.filename)[1].lower()
             if ext not in SUPPORTED_EXTENSIONS:
                 raise HTTPException(
@@ -1133,17 +1219,14 @@ async def extract_requirement_from_document(
                     detail=f"不支持的文件格式: {ext}，支持的格式为: PDF, DOCX, TXT, MD"
                 )
 
-            # 读取文件内容
             file_content = await file.read()
 
-            # 验证文件大小
             if len(file_content) > MAX_FILE_SIZE:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="文件大小超过限制（最大10MB）"
                 )
 
-            # 提取文本
             try:
                 extracted_text = extract_text_from_file(file.filename, file_content)
             except Exception as e:
@@ -1152,7 +1235,6 @@ async def extract_requirement_from_document(
                     detail=f"文件解析失败: {str(e)}"
                 )
 
-        # 方式二：直接使用粘贴的文本内容
         elif text:
             extracted_text = text.strip()
             if not extracted_text:
@@ -1161,11 +1243,9 @@ async def extract_requirement_from_document(
                     detail="粘贴的文本内容为空，请确认已正确复制文档内容"
                 )
 
-        # 方式三：从URL中提取文本
         elif url:
             from utils.parser.requirement_document_parser import extract_text_from_url
 
-            # 基本URL验证
             if not url.startswith(('http://', 'https://')):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1180,21 +1260,18 @@ async def extract_requirement_from_document(
                     detail=f"无法获取链接内容: {str(e)}"
                 )
 
-        # 验证提取的文本不为空
         if not extracted_text or not extracted_text.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="未能从文档中提取到有效文本内容"
             )
 
-        # 截断过长的文本（避免超出LLM上下文窗口）
         max_text_length = 8000
         if len(extracted_text) > max_text_length:
             extracted_text_for_ai = extracted_text[:max_text_length] + "\n\n[... 文档内容过长，已截断 ...]"
         else:
             extracted_text_for_ai = extracted_text
 
-        # 使用AI提取需求信息
         from config.prompts.parser.requirement_extractor import prompt as req_prompt
         from config.settings import llm
         from langchain_core.output_parsers import JsonOutputParser
@@ -1202,7 +1279,6 @@ async def extract_requirement_from_document(
         chain = req_prompt | llm | JsonOutputParser()
         ai_result = chain.invoke({"document_content": extracted_text_for_ai})
 
-        # 构建返回结果
         return {
             "success": True,
             "message": "需求信息提取成功",
@@ -1231,30 +1307,14 @@ async def export_cases_as_xmind(
         show_priority: bool = Query(True, description="用例标题前显示优先级"),
         show_case_id: bool = Query(False, description="用例标题显示用例编号"),
         show_node_labels: bool = Query(False, description="注明节点属性（如 前置条件：xxx）"),
-        root_prefix: str = Query("验证", description="根节点前缀"),
-        root_suffix: str = Query("功能", description="根节点后缀"),
+        scenario_prefix: str = Query("验证", description="场景名称前缀"),
+        scenario_suffix: str = Query("功能", description="场景名称后缀"),
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
 ):
-    """
-    将需求关联的测试用例导出为 XMind 思维导图文件。
-
-    默认模板格式：
-    - 根节点：验证{需求标题}功能
-    - 二级节点：{优先级} 用例标题（不含用例编号）
-    - 三级叶子节点：前置条件、测试步骤、预期结果（编号列表合并为单行）
-    - 默认不显示节点属性标记
-
-    参数：
-    - show_priority: 用例标题前显示优先级（默认 True）
-    - show_case_id: 用例标题显示用例编号（默认 False）
-    - show_node_labels: 注明节点属性标签（默认 False，如 "前置条件：xxx"）
-    - root_prefix: 根节点前缀（默认 "验证"）
-    - root_suffix: 根节点后缀（默认 "功能"）
-    """
+    """导出测试用例为 XMind 思维导图文件（含场景中间层级）"""
     project, current_user = project_user
 
     try:
-        # 查询需求
         requirement = await RequirementDoc.get_or_none(id=requirement_id)
         if not requirement:
             raise HTTPException(
@@ -1262,7 +1322,6 @@ async def export_cases_as_xmind(
                 detail="需求不存在"
             )
 
-        # 验证需求属于该项目
         module = await ProjectModule.get_or_none(id=requirement.module_id)
         if not module or module.project_id != project_id:
             raise HTTPException(
@@ -1270,8 +1329,7 @@ async def export_cases_as_xmind(
                 detail="需求不属于该项目"
             )
 
-        # 查询关联的测试用例
-        cases = await FunctionalCase.filter(requirement_id=requirement_id).order_by('id').all()
+        cases = await FunctionalCase.filter(requirement_id=requirement_id).order_by('scenario_sort', 'id').all()
 
         if not cases:
             raise HTTPException(
@@ -1279,10 +1337,13 @@ async def export_cases_as_xmind(
                 detail="该需求下暂无测试用例，请先生成用例后再导出"
             )
 
-        # 将 ORM 对象转为字典列表
-        cases_data = []
+        # 按场景分组
+        scenario_map = {}
         for case in cases:
-            cases_data.append({
+            scenario_name = case.scenario or "未分类场景"
+            if scenario_name not in scenario_map:
+                scenario_map[scenario_name] = []
+            scenario_map[scenario_name].append({
                 "case_no": case.case_no,
                 "case_name": case.case_name,
                 "priority": case.priority,
@@ -1291,29 +1352,26 @@ async def export_cases_as_xmind(
                 "expected_result": case.expected_result or "",
             })
 
-        # 构建模板设置
         template_settings = {
             "show_priority": show_priority,
             "show_case_id": show_case_id,
             "show_node_labels": show_node_labels,
-            "root_prefix": root_prefix,
-            "root_suffix": root_suffix,
+            "scenario_prefix": scenario_prefix,
+            "scenario_suffix": scenario_suffix,
         }
 
-        # 生成 XMind 文件
         from utils.xmind_generator import generate_xmind_file
 
         xmind_bytes = generate_xmind_file(
             requirement_title=requirement.title,
-            test_cases=cases_data,
-            template_settings=template_settings
+            test_cases=None,  # 不传旧参数
+            template_settings=template_settings,
+            scenario_groups=scenario_map  # 传场景分组
         )
 
-        # 构建文件名
         safe_title = re.sub(r'[\\/:*?"<>|]', '_', requirement.title)[:50]
         filename = f"{safe_title}_测试用例.xmind"
 
-        # 返回文件下载响应
         from urllib.parse import quote
         encoded_filename = quote(filename)
 

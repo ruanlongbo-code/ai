@@ -160,7 +160,7 @@
         <el-card>
           <template #header>
             <div class="card-header">
-              <span>关联功能用例</span>
+              <span>关联功能用例 <el-tag size="small" effect="plain" round style="margin-left:8px;">共 {{ casesTotal }} 条用例</el-tag></span>
               <div>
                 <el-button
                   type="primary"
@@ -175,7 +175,7 @@
                   type="warning"
                   @click="showXmindDialog"
                   :loading="exportingXmind"
-                  :disabled="relatedCases.length === 0"
+                  :disabled="casesTotal === 0"
                 >
                   <el-icon><Download /></el-icon>
                   导出 XMind
@@ -189,49 +189,89 @@
           </template>
 
           <div v-loading="casesLoading" class="cases-content">
-            <div v-if="relatedCases.length > 0">
-              <el-table :data="relatedCases" stripe>
-                <el-table-column prop="case_no" label="用例编号" min-width="150" />
-                <el-table-column prop="case_name" label="用例名称" min-width="200" />
-                <el-table-column prop="priority" label="优先级" width="100">
-                  <template #default="{ row }">
-                    <el-tag
-                      effect="light"
-                      size="small"
-                      type="info"
-                    >
-                      {{ REQUIREMENT_PRIORITY_LABELS[row.priority] }}
-                    </el-tag>
+            <div v-if="scenarioGroups.length > 0">
+              <el-collapse v-model="expandedScenarios">
+                <el-collapse-item
+                  v-for="(group, idx) in scenarioGroups"
+                  :key="group.scenario"
+                  :name="idx"
+                >
+                  <template #title>
+                    <div class="scenario-header">
+                      <span class="scenario-icon">🎯</span>
+                      <span class="scenario-name">{{ group.scenario }}</span>
+                      <el-tag size="small" effect="plain" round class="scenario-count">
+                        {{ group.cases.length }} 条用例
+                      </el-tag>
+                    </div>
                   </template>
-                </el-table-column>
-                <el-table-column prop="status" label="状态" width="100">
-                  <template #default="{ row }">
-                    <el-tag size="small">{{ row.status }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="created_at" label="创建时间" width="180">
-                  <template #default="{ row }">
-                    {{ formatDate(row.created_at) }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="updated_at" label="修改时间" width="180">
-                  <template #default="{ row }">
-                    {{ formatDate(row.updated_at) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="120">
-                  <template #default="{ row }">
-                    <el-button
-                      plain
-                      type="primary"
-                      size="small"
-                      @click="handleViewCase(row)"
-                    >
-                      查看
-                    </el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
+
+                  <el-table :data="group.cases" stripe class="scenario-table">
+                    <el-table-column prop="case_no" label="用例编号" width="120">
+                      <template #default="{ row }">
+                        <span class="case-no-text">{{ row.case_no || '-' }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="case_name" label="用例名称" min-width="200">
+                      <template #default="{ row }">
+                        <span class="case-name-link" @click="handleViewCase(row)">{{ row.case_name }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="priority" label="优先级" width="90" align="center">
+                      <template #default="{ row }">
+                        <el-tag
+                          :type="getPriorityTagType(row.priority)"
+                          effect="light"
+                          size="small"
+                          round
+                        >
+                          {{ priorityLabel(row.priority) }}
+                        </el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="status" label="状态" width="100" align="center">
+                      <template #default="{ row }">
+                        <el-tag :type="getCaseStatusType(row.status)" effect="light" size="small">
+                          {{ caseStatusLabel(row.status) }}
+                        </el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column prop="created_at" label="创建时间" width="170">
+                      <template #default="{ row }">
+                        {{ formatDate(row.created_at) }}
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="100" align="center">
+                      <template #default="{ row }">
+                        <el-button
+                          plain
+                          type="primary"
+                          size="small"
+                          @click="handleViewCase(row)"
+                        >
+                          查看
+                        </el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </el-collapse-item>
+              </el-collapse>
+
+              <!-- 底部统计 + 分页 -->
+              <div class="cases-pagination">
+                <span class="pagination-stats">
+                  共 <b>{{ casesTotal }}</b> 条用例
+                </span>
+                <el-pagination
+                  v-model:current-page="casesPage"
+                  v-model:page-size="casesPageSize"
+                  :page-sizes="[50, 100]"
+                  :total="casesTotal"
+                  layout="sizes, prev, pager, next"
+                  @size-change="handleCasesPageSizeChange"
+                  @current-change="handleCasesPageChange"
+                />
+              </div>
             </div>
             <div v-else class="empty-cases">
               <el-empty description="暂无关联的功能用例">
@@ -264,33 +304,34 @@
         <div class="preview-tree">
           <div class="tree-node root">
             <span class="node-icon">📋</span>
-            <span class="node-text">{{ xmindSettings.root_prefix }}{{ requirement?.title || 'xxx' }}{{ xmindSettings.root_suffix }}</span>
+            <span class="node-text">{{ requirement?.title || '需求标题' }}</span>
           </div>
           <div class="tree-node level1">
             <span class="tree-line">├─</span>
+            <span class="node-text">🎯 {{ xmindSettings.scenario_prefix }}场景A{{ xmindSettings.scenario_suffix }}</span>
+          </div>
+          <div class="tree-node level2">
+            <span class="tree-line">│ &nbsp; ├─</span>
             <span class="node-text">
               <template v-if="xmindSettings.show_priority">{P0} </template>
               <template v-if="xmindSettings.show_case_id">[TC_001] </template>
               xxx（用例标题）
             </span>
           </div>
-          <div class="tree-node level2">
-            <span class="tree-line">│ &nbsp; └─</span>
-            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '前置条件：\n' : '' }}1.前置条件内容1
-2.前置条件内容2</span>
-          </div>
           <div class="tree-node level3">
-            <span class="tree-line">│ &nbsp; &nbsp; &nbsp; └─</span>
-            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '测试步骤：\n' : '' }}1.测试步骤1
-2.测试步骤2</span>
+            <span class="tree-line">│ &nbsp; │ &nbsp; └─</span>
+            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '前置条件：\n' : '' }}1.前置条件内容</span>
           </div>
           <div class="tree-node level4">
-            <span class="tree-line">│ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; └─</span>
-            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '预期结果：\n' : '' }}1.预期结果1
-2.预期结果2</span>
+            <span class="tree-line">│ &nbsp; │ &nbsp; &nbsp; &nbsp; └─</span>
+            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '测试步骤：\n' : '' }}1.测试步骤</span>
           </div>
-          <div class="tree-node level1">
-            <span class="tree-line">├─</span>
+          <div class="tree-node level5">
+            <span class="tree-line">│ &nbsp; │ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; └─</span>
+            <span class="node-text leaf preview-multiline">{{ xmindSettings.show_node_labels ? '预期结果：\n' : '' }}1.预期结果</span>
+          </div>
+          <div class="tree-node level2">
+            <span class="tree-line">│ &nbsp; └─</span>
             <span class="node-text">
               <template v-if="xmindSettings.show_priority">{P1} </template>
               xxx（用例标题）
@@ -298,24 +339,28 @@
           </div>
           <div class="tree-node level1">
             <span class="tree-line">└─</span>
+            <span class="node-text">🎯 {{ xmindSettings.scenario_prefix }}场景B{{ xmindSettings.scenario_suffix }}</span>
+          </div>
+          <div class="tree-node level2">
+            <span class="tree-line">&nbsp; &nbsp; └─</span>
             <span class="node-text">...（更多用例）</span>
           </div>
         </div>
-        <p class="preview-note">* 默认不注明节点属性</p>
+        <p class="preview-note">* 根节点为需求标题，第二层为验证场景，第三层为用例</p>
       </div>
 
       <!-- 模板设置选项 -->
-      <el-divider content-position="left">模板设置（可根据需要调整）</el-divider>
+      <el-divider content-position="left">场景节点设置</el-divider>
 
       <el-form label-width="160px" class="template-form">
-        <el-form-item label="根节点前缀">
-          <el-input v-model="xmindSettings.root_prefix" placeholder="验证" style="width: 120px;" />
+        <el-form-item label="场景名称前缀">
+          <el-input v-model="xmindSettings.scenario_prefix" placeholder="验证" style="width: 120px;" />
         </el-form-item>
-        <el-form-item label="根节点后缀">
-          <el-input v-model="xmindSettings.root_suffix" placeholder="功能" style="width: 120px;" />
+        <el-form-item label="场景名称后缀">
+          <el-input v-model="xmindSettings.scenario_suffix" placeholder="功能" style="width: 120px;" />
         </el-form-item>
 
-        <el-divider />
+        <el-divider content-position="left">用例节点设置</el-divider>
 
         <el-form-item label="用例标题显示优先级">
           <el-switch v-model="xmindSettings.show_priority" />
@@ -328,10 +373,10 @@
 
         <el-divider />
 
-          <el-form-item label="注明节点属性">
-            <el-switch v-model="xmindSettings.show_node_labels" />
-            <span class="setting-hint">开启后子节点显示属性标签，如 "前置条件：xxx"、"测试步骤：xxx"</span>
-          </el-form-item>
+        <el-form-item label="注明节点属性">
+          <el-switch v-model="xmindSettings.show_node_labels" />
+          <span class="setting-hint">开启后子节点显示属性标签，如 "前置条件：xxx"、"测试步骤：xxx"</span>
+        </el-form-item>
       </el-form>
     </div>
 
@@ -376,8 +421,14 @@ const casesLoading = ref(false)
 const isEditing = ref(false)
 const requirement = ref({})
 const modules = ref([])
-const relatedCases = ref([])
 const editFormRef = ref()
+
+// 用例数据与分页（真实后端分页）
+const relatedCases = ref([])
+const casesTotal = ref(0)
+const casesPage = ref(1)
+const casesPageSize = ref(50)
+const expandedScenarios = ref([])
 
 // 用例详情弹框相关
 const showCaseDetailModal = ref(false)
@@ -390,8 +441,8 @@ const xmindSettings = reactive({
   show_priority: true,
   show_case_id: false,
   show_node_labels: false,
-  root_prefix: '验证',
-  root_suffix: '功能',
+  scenario_prefix: '验证',
+  scenario_suffix: '功能',
 })
 
 // 编辑表单
@@ -432,6 +483,32 @@ const canEdit = computed(() => {
   // 根据需求状态和用户权限判断是否可编辑
   return requirement.value.status !== 'archived'
 })
+
+// 按场景分组计算（基于当前页返回的用例数据）
+const scenarioGroups = computed(() => {
+  if (!relatedCases.value || relatedCases.value.length === 0) return []
+  const groupMap = {}
+  for (const c of relatedCases.value) {
+    const scenario = c.scenario || '未分类场景'
+    if (!groupMap[scenario]) {
+      groupMap[scenario] = { scenario, cases: [] }
+    }
+    groupMap[scenario].cases.push(c)
+  }
+  return Object.values(groupMap)
+})
+
+// 优先级/状态辅助
+const priorityLabel = (p) => ({ 1: 'P0', 2: 'P1', 3: 'P2', 4: 'P3' }[p] || `P${p}`)
+const getPriorityTagType = (p) => ({ 1: 'danger', 2: 'warning', 3: '', 4: 'info' }[p] || 'info')
+const caseStatusLabel = (s) => ({
+  design: '待审核', pass: '审核通过', wait: '待执行',
+  smoke: '执行通过', regression: '执行失败', obsolete: '已废弃'
+}[s] || s)
+const getCaseStatusType = (s) => ({
+  design: 'info', pass: 'success', wait: 'warning',
+  smoke: 'success', regression: 'danger', obsolete: 'info'
+}[s] || 'info')
 
 // 方法
 const getModuleName = (moduleId) => {
@@ -509,9 +586,15 @@ const loadRelatedCases = async () => {
   casesLoading.value = true
   try {
     const response = await getFunctionalCasesList(projectId.value, {
-      requirement_id: requirementId.value
+      requirement_id: requirementId.value,
+      page: casesPage.value,
+      page_size: casesPageSize.value
     })
-    relatedCases.value = response.data?.cases || []
+    const data = response.data || response
+    relatedCases.value = data.cases || []
+    casesTotal.value = data.total || 0
+    // 默认展开当前页所有场景组
+    expandedScenarios.value = scenarioGroups.value.map((_, i) => i)
   } catch (error) {
     console.error('加载相关测试用例失败:', error)
     ElMessage.error('加载相关测试用例失败')
@@ -520,7 +603,19 @@ const loadRelatedCases = async () => {
   }
 }
 
+const handleCasesPageChange = (page) => {
+  casesPage.value = page
+  loadRelatedCases()
+}
+
+const handleCasesPageSizeChange = (size) => {
+  casesPageSize.value = size
+  casesPage.value = 1
+  loadRelatedCases()
+}
+
 const handleRefreshCases = async () => {
+  casesPage.value = 1
   await loadRelatedCases()
   ElMessage.success('刷新成功')
 }
@@ -612,7 +707,13 @@ const handleExportXmind = async () => {
     const response = await exportCasesAsXmind(
         projectId.value,
         requirementId.value,
-        { ...xmindSettings }
+        {
+          show_priority: xmindSettings.show_priority,
+          show_case_id: xmindSettings.show_case_id,
+          show_node_labels: xmindSettings.show_node_labels,
+          scenario_prefix: xmindSettings.scenario_prefix,
+          scenario_suffix: xmindSettings.scenario_suffix,
+        }
     )
 
     // 处理文件下载
@@ -812,6 +913,77 @@ onMounted(async () => {
   padding: 4px 8px;
 }
 
+/* ===== 场景分组样式 ===== */
+.scenario-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scenario-icon {
+  font-size: 18px;
+}
+
+.scenario-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.scenario-count {
+  margin-left: 8px;
+}
+
+.scenario-table {
+  margin-top: 4px;
+}
+
+.case-no-text {
+  color: #9ca3af;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.case-name-link {
+  font-weight: 500;
+  color: #1f2937;
+  cursor: pointer;
+}
+
+.case-name-link:hover {
+  color: #409EFF;
+}
+
+:deep(.el-collapse-item__header) {
+  font-size: 15px;
+  height: 48px;
+  line-height: 48px;
+  padding: 0 8px;
+  background: #fafbfc;
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+
+:deep(.el-collapse-item__content) {
+  padding: 8px 0;
+}
+
+.cases-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 12px 0;
+  border-top: 1px solid #f0f0f0;
+}
+
+.pagination-stats {
+  font-size: 13px;
+  color: #606266;
+  white-space: nowrap;
+}
+
 .empty-cases {
   display: flex;
   align-items: center;
@@ -877,6 +1049,11 @@ onMounted(async () => {
 }
 
 .tree-node.level4 {
+  padding-left: 20px;
+  color: #606266;
+}
+
+.tree-node.level5 {
   padding-left: 20px;
   color: #606266;
 }

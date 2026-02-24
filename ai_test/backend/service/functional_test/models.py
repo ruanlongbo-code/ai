@@ -16,6 +16,7 @@ class RequirementDoc(Model):
                               description="状态（draft=草稿, reviewing=已确认, approved=待完善, rejected=完成, changed=废弃）")
     created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
     updated_at = fields.DatetimeField(auto_now=True, description="更新时间")
+    schedule_item_id = fields.IntField(null=True, description="关联排期管理中的需求ID（可选）")
     # 外键关联
     module = fields.ForeignKeyField(
         'models.ProjectModule',
@@ -36,6 +37,42 @@ class RequirementDoc(Model):
         table_description = "需求表"
 
 
+class FunctionalCaseSet(Model):
+    """功能用例集表"""
+    id = fields.IntField(pk=True, description="用例集ID")
+    name = fields.CharField(max_length=255, description="用例集名称")
+    description = fields.TextField(null=True, description="用例集描述")
+    case_count = fields.IntField(default=0, description="用例总数")
+    scenario_count = fields.IntField(default=0, description="场景数")
+    created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
+    updated_at = fields.DatetimeField(auto_now=True, description="更新时间")
+
+    # 外键关联
+    requirement = fields.ForeignKeyField(
+        'models.RequirementDoc',
+        related_name='case_sets',
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="关联需求"
+    )
+    project = fields.ForeignKeyField(
+        'models.Project',
+        related_name='functional_case_sets',
+        on_delete=fields.CASCADE,
+        description="关联项目"
+    )
+    creator = fields.ForeignKeyField(
+        'models.User',
+        related_name='created_case_sets',
+        on_delete=fields.CASCADE,
+        description="创建人"
+    )
+
+    class Meta:
+        table = "functional_case_set"
+        table_description = "功能用例集表"
+
+
 class FunctionalCase(Model):
     """功能用例表"""
     id = fields.IntField(pk=True, description="用例ID")
@@ -46,6 +83,8 @@ class FunctionalCase(Model):
         max_length=20,
         description="当前状态（design=待审核, pass=审核通过,wait=待执行， smoke=执行通过, regression=执行失败, obsolete=已废弃）"
     )
+    scenario = fields.CharField(max_length=255, null=True, description="所属测试场景名称")
+    scenario_sort = fields.IntField(default=0, description="场景内排序")
     preconditions = fields.TextField(null=True, description="前置步骤")
     test_steps = fields.JSONField(null=True, description="测试步骤列表")
     test_data = fields.JSONField(null=True, description="输入数据")
@@ -61,6 +100,13 @@ class FunctionalCase(Model):
         null=True,
         on_delete=fields.SET_NULL,
         description="关联需求"
+    )
+    case_set = fields.ForeignKeyField(
+        'models.FunctionalCaseSet',
+        related_name='cases',
+        null=True,
+        on_delete=fields.SET_NULL,
+        description="关联用例集"
     )
     creator = fields.ForeignKeyField(
         'models.User',

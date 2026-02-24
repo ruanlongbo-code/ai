@@ -335,9 +335,9 @@ const STORAGE_KEY = 'dashboard_shortcuts'
 const allShortcutOptions = [
   // 排期管理
   { name: 'ScheduleIteration', label: '排期管理', icon: 'Calendar', group: '排期管理' },
-  { name: 'ScheduleDailyReport', label: '测试日报', icon: 'Edit', group: '排期管理' },
+  { name: 'ScheduleDailyReport', label: '同步进度', icon: 'Edit', group: '排期管理' },
   { name: 'ScheduleDashboard', label: '进度看板', icon: 'TrendCharts', group: '排期管理' },
-  { name: 'ScheduleFeishu', label: '飞书群集成', icon: 'ChatDotRound', group: '排期管理' },
+  { name: 'ScheduleFeishu', label: '需求群管理', icon: 'ChatDotRound', group: '排期管理' },
   // 功能测试
   { name: 'FunctionTestRequirement', label: '需求管理', icon: 'Document', group: '功能测试' },
   { name: 'FunctionTestRequirementCreate', label: '新建需求', icon: 'Plus', group: '功能测试' },
