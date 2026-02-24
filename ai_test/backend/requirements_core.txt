@@ -1,0 +1,41 @@
+# 核心依赖（快速启动用，跳过重型 AI/RAG 包）
+allure-pytest
+allure-python-commons
+Faker
+jmespath
+PyMySQL
+pytest
+PyYAML
+requests
+requests-toolbelt
+rsa
+
+python-dotenv
+openai
+langchain
+langchain_core
+langchain-openai
+langchain_community
+langgraph
+langsmith
+
+fastapi
+pydantic[email]
+uvicorn
+tortoise-orm[asyncmy]
+bcrypt
+python-multipart
+gunicorn
+PyJWT
+
+# 文档解析
+python-docx
+pdfplumber
+beautifulsoup4
+
+# UI测试 - 浏览器自动化
+playwright
+websockets
+
+# HTTP客户端（飞书推送）
+httpx

@@ -1073,7 +1073,18 @@ async def generate_test_cases_from_requirement(
         requirement_id: int,
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
 ):
-    """根据需求生成测试用例接口（含场景分组和用例集）"""
+    """
+    根据需求生成测试用例接口（知识增强版，含场景分组和用例集）
+
+    完整业务链路：
+    1. 从数据库读取需求基本信息（标题、描述、优先级）
+    2. 从 RAG 知识库检索与该需求相关的补充信息（需求文档、技术文档等）
+    3. 从评审记录获取评审知识（需求评审、技术评审、用例评审的 AI 分析结果）
+    4. 从历史用例集获取参考用例
+    5. 将以上所有信息合并为"增强需求文档"
+    6. 调用 GeneratorTestCaseWorkflow 生成测试用例
+    7. SSE 实时流式输出进度和结果
+    """
     project, current_user = project_user
 
     try:
@@ -1091,12 +1102,25 @@ async def generate_test_cases_from_requirement(
                 detail="需求不属于当前项目"
             )
 
-        requirement_content = f"""
-            需求标题：{requirement.title}
-            需求描述：{requirement.description}
-            需求优先级：{requirement.priority}
-            需求状态：{requirement.status}
-            """
+        # ============ 知识增强：检索 RAG + 评审知识 + 历史用例 ============
+        from utils.knowledge_enhancer import build_enhanced_requirement
+
+        enhanced_result = await build_enhanced_requirement(
+            requirement_title=requirement.title,
+            requirement_description=requirement.description or "",
+            requirement_priority=str(requirement.priority) if requirement.priority else "",
+            requirement_status=requirement.status or "",
+            project_id=project_id,
+            enable_rag=True,
+            enable_review=True,
+            enable_case_set=True,
+        )
+
+        # 使用增强后的完整文档作为输入（包含 RAG 知识 + 评审知识 + 历史用例）
+        requirement_content = enhanced_result["enhanced_content"]
+        knowledge_sources = enhanced_result["sources"]
+
+        logger.info(f"知识增强完成，数据来源: {knowledge_sources}")
 
         # 工作流节点 -> 进度百分比映射
         node_progress_map = {
@@ -1113,11 +1137,31 @@ async def generate_test_cases_from_requirement(
         async def generate_stream():
             """生成测试用例的流式输出函数"""
             try:
-                yield f"data: {json.dumps({'type': 'start', 'message': '【开始生成】调用AI大模型...', 'progress': 5}, ensure_ascii=False)}\n\n"
+                # 发送知识增强信息
+                source_labels = {
+                    "database": "数据库需求",
+                    "rag_knowledge": "RAG知识库",
+                    "review_knowledge": "评审记录",
+                    "case_set_knowledge": "历史用例集",
+                }
+                source_names = [source_labels.get(s, s) for s in knowledge_sources]
+                source_names_str = "、".join(source_names)
+                yield f"data: {json.dumps({'type': 'info', 'message': f'【知识增强】已检索到 {len(knowledge_sources)} 个知识源：{source_names_str}', 'progress': 3}, ensure_ascii=False)}\n\n"
+
+                if "rag_knowledge" in knowledge_sources:
+                    yield f"data: {json.dumps({'type': 'info', 'message': '【RAG检索】已从知识库检索到相关需求/技术文档，将作为补充上下文'}, ensure_ascii=False)}\n\n"
+                if "review_knowledge" in knowledge_sources:
+                    yield f"data: {json.dumps({'type': 'info', 'message': '【评审知识】已获取到评审分析结果（需求评审/技术评审/用例评审），将补充遗漏场景'}, ensure_ascii=False)}\n\n"
+                if "case_set_knowledge" in knowledge_sources:
+                    yield f"data: {json.dumps({'type': 'info', 'message': '【历史参考】已加载历史用例集作为参考'}, ensure_ascii=False)}\n\n"
+
+                # 发送开始生成的消息
+                yield f"data: {json.dumps({'type': 'start', 'message': '【开始生成】基于增强知识调用AI大模型...', 'progress': 5}, ensure_ascii=False)}\n\n"
 
                 workflow_instance = GeneratorTestCaseWorkflow()
                 workflow = workflow_instance.create_workflow()
 
+                # 流式执行工作流（传入增强后的完整需求文档）
                 stream_response = workflow.stream(
                     {
                         "input_requirement": requirement_content
@@ -1157,7 +1201,8 @@ async def generate_test_cases_from_requirement(
                                     generated_cases_count = int(m.group(1))
 
                     await asyncio.sleep(0.1)
-                yield f"data: {json.dumps({'type': 'complete', 'message': f'测试用例生成完成！共生成 {generated_cases_count} 个测试用例（含场景分组）', 'progress': 100}, ensure_ascii=False)}\n\n"
+                # 发送完成消息
+                yield f"data: {json.dumps({'type': 'complete', 'message': f'测试用例生成完成！共生成 {generated_cases_count} 个测试用例（含场景分组，知识源：{source_names_str}）', 'progress': 100}, ensure_ascii=False)}\n\n"
 
             except Exception as e:
                 error_message = f"生成测试用例时发生错误：{str(e)}"

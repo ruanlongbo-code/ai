@@ -64,6 +64,38 @@
             </el-menu-item>
           </el-sub-menu>
 
+          <!-- 知识库 -->
+          <el-sub-menu index="knowledge">
+            <template #title>
+              <el-icon><Collection /></el-icon>
+              <span>知识库</span>
+            </template>
+            <el-menu-item index="/knowledge/document">
+              <el-icon><FolderOpened /></el-icon>
+              <template #title>文档管理</template>
+            </el-menu-item>
+            <el-menu-item index="/knowledge/search">
+              <el-icon><Search /></el-icon>
+              <template #title>知识检索</template>
+            </el-menu-item>
+            <el-menu-item index="/knowledge/case-set">
+              <el-icon><Notebook /></el-icon>
+              <template #title>用例集</template>
+            </el-menu-item>
+            <el-menu-item index="/knowledge/review/requirement">
+              <el-icon><Document /></el-icon>
+              <template #title>需求评审</template>
+            </el-menu-item>
+            <el-menu-item index="/knowledge/review/technical">
+              <el-icon><Cpu /></el-icon>
+              <template #title>技术评审</template>
+            </el-menu-item>
+            <el-menu-item index="/knowledge/review/testcase">
+              <el-icon><Checked /></el-icon>
+              <template #title>用例评审</template>
+            </el-menu-item>
+          </el-sub-menu>
+
           <!-- 功能测试 -->
           <el-sub-menu index="function-test">
             <template #title>
@@ -143,6 +175,7 @@
               <template #title>用例管理</template>
             </el-menu-item>
           </el-sub-menu>
+
 
           <!-- 用户管理 -->
           <el-sub-menu v-if="isAdmin" index="user-management">
