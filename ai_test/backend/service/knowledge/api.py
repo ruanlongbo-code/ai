@@ -9,7 +9,7 @@ import traceback
 import json
 import os
 
-from .models import KnowledgeDocument, KnowledgeCaseSet, KnowledgeCaseItem
+from .models import KnowledgeDocument, KnowledgeCaseSet, KnowledgeCaseItem, ReviewRecord
 from .schemas import (
     KnowledgeDocumentResponse,
     KnowledgeDocumentListResponse,
@@ -18,6 +18,8 @@ from .schemas import (
     CaseSetResponse,
     CaseSetListResponse,
     CaseItemResponse,
+    ReviewRecordResponse,
+    ReviewRecordListResponse,
 )
 from service.user.models import User
 from service.project.models import Project
@@ -614,3 +616,312 @@ async def _save_tree_to_db(tree: list, case_set_id: int, parent_id=None) -> int:
             count += await _save_tree_to_db(node['children'], case_set_id, item.id)
 
     return count
+
+
+# ======================== 评审记录 API ========================
+
+def _review_to_response(record: ReviewRecord) -> ReviewRecordResponse:
+    """将 ReviewRecord 模型转换为响应对象"""
+    return ReviewRecordResponse(
+        id=record.id,
+        project_id=record.project_id,
+        title=record.title,
+        review_type=record.review_type,
+        description=record.description,
+        video_file_name=record.video_file_name,
+        video_size=record.video_size,
+        frame_count=record.frame_count,
+        status=record.status,
+        analysis_result=record.analysis_result,
+        extracted_text=record.extracted_text,
+        key_decisions=record.key_decisions,
+        action_items=record.action_items,
+        synced_to_rag=record.synced_to_rag,
+        error_message=record.error_message,
+        creator_id=record.creator_id,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+@router.get("/{project_id}/reviews", response_model=ReviewRecordListResponse, summary="获取评审记录列表")
+async def get_review_list(
+        project_id: int,
+        review_type: Optional[str] = Query(None, description="评审类型: requirement/technical/testcase"),
+        page: int = Query(1, ge=1),
+        page_size: int = Query(20, ge=1, le=100),
+        project_user: tuple = Depends(verify_admin_or_project_member)
+):
+    """获取项目下的评审记录列表，可按评审类型筛选"""
+    project, current_user = project_user
+    try:
+        filters = {"project_id": project_id}
+        if review_type:
+            filters["review_type"] = review_type
+
+        total = await ReviewRecord.filter(**filters).count()
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+        offset = (page - 1) * page_size
+
+        records = await ReviewRecord.filter(**filters).order_by("-created_at").offset(offset).limit(page_size).all()
+
+        return ReviewRecordListResponse(
+            reviews=[_review_to_response(r) for r in records],
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取评审列表失败: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="获取评审列表失败")
+
+
+@router.get("/{project_id}/reviews/{review_id}", response_model=ReviewRecordResponse, summary="获取评审详情")
+async def get_review_detail(
+        project_id: int,
+        review_id: int,
+        project_user: tuple = Depends(verify_admin_or_project_member)
+):
+    project, current_user = project_user
+    try:
+        record = await ReviewRecord.get_or_none(id=review_id, project_id=project_id)
+        if not record:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="评审记录不存在")
+        return _review_to_response(record)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取评审详情失败: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="获取评审详情失败")
+
+
+@router.post("/{project_id}/reviews/upload", response_model=ReviewRecordResponse, summary="上传评审视频")
+async def upload_review_video(
+        project_id: int,
+        file: UploadFile = File(..., description="评审视频文件（MP4、AVI、MOV、MKV、WebM）"),
+        title: str = Form(..., description="评审标题"),
+        review_type: str = Form(..., description="评审类型: requirement/technical/testcase"),
+        description: Optional[str] = Form(None, description="评审描述"),
+        project_user: tuple = Depends(verify_admin_or_project_editor)
+):
+    """上传评审视频，支持多种视频格式"""
+    project, current_user = project_user
+
+    try:
+        # 校验评审类型
+        valid_types = {"requirement", "technical", "testcase"}
+        if review_type not in valid_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"评审类型无效，有效值: {', '.join(valid_types)}"
+            )
+
+        # 校验文件格式
+        supported_ext = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv"}
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in supported_ext:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"不支持的视频格式: {ext}，支持: {', '.join(supported_ext)}"
+            )
+
+        # 保存视频文件
+        upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "datas", "reviews")
+        os.makedirs(upload_dir, exist_ok=True)
+
+        import time
+        safe_filename = f"{int(time.time())}_{review_type}{ext}"
+        file_path = os.path.join(upload_dir, safe_filename)
+
+        file_content = await file.read()
+        file_size = len(file_content)
+
+        # 限制文件大小 500MB
+        if file_size > 500 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="视频文件大小超过限制（最大500MB）"
+            )
+
+        with open(file_path, "wb") as f:
+            f.write(file_content)
+
+        # 创建评审记录
+        record = await ReviewRecord.create(
+            project_id=project_id,
+            title=title,
+            review_type=review_type,
+            description=description,
+            video_file_name=file.filename,
+            video_file_path=file_path,
+            video_size=file_size,
+            status="uploaded",
+            creator_id=current_user.id,
+        )
+
+        return _review_to_response(record)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"上传评审视频失败: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="上传评审视频失败")
+
+
+@router.post("/{project_id}/reviews/{review_id}/analyze", summary="分析评审视频")
+async def analyze_review_video(
+        project_id: int,
+        review_id: int,
+        project_user: tuple = Depends(verify_admin_or_project_editor)
+):
+    """
+    触发对评审视频的AI分析：
+    1. 使用ffmpeg提取关键帧
+    2. 调用视觉模型分析每帧内容
+    3. 汇总生成评审知识文档
+    4. 自动同步到RAG知识库
+
+    返回SSE流式进度
+    """
+    project, current_user = project_user
+
+    try:
+        record = await ReviewRecord.get_or_none(id=review_id, project_id=project_id)
+        if not record:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="评审记录不存在")
+
+        if not record.video_file_path or not os.path.exists(record.video_file_path):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="视频文件不存在")
+
+        review_type_names = {"requirement": "需求评审", "technical": "技术评审", "testcase": "用例评审"}
+
+        async def generate():
+            try:
+                # 更新状态为分析中
+                record.status = "extracting"
+                await record.save()
+                yield f"data: {json.dumps({'type': 'progress', 'step': 'extracting', 'progress': 10, 'message': '正在提取视频关键帧...'}, ensure_ascii=False)}\n\n"
+
+                # 提取关键帧
+                from utils.video_analyzer import VideoAnalyzer
+                analyzer = VideoAnalyzer()
+
+                frames_dir = os.path.join(os.path.dirname(record.video_file_path), f"frames_{record.id}")
+                frame_paths = analyzer.extract_frames(record.video_file_path, frames_dir)
+
+                record.frame_count = len(frame_paths)
+                record.status = "analyzing"
+                await record.save()
+                yield f"data: {json.dumps({'type': 'progress', 'step': 'analyzing', 'progress': 20, 'message': f'成功提取 {len(frame_paths)} 个关键帧，开始AI分析...'}, ensure_ascii=False)}\n\n"
+
+                # 逐帧分析
+                frame_analyses = []
+                for i, frame_path in enumerate(frame_paths):
+                    progress = 20 + int(60 * (i + 1) / len(frame_paths))
+                    yield f"data: {json.dumps({'type': 'progress', 'step': 'analyzing', 'progress': progress, 'message': f'正在分析第 {i+1}/{len(frame_paths)} 帧...'}, ensure_ascii=False)}\n\n"
+                    analysis = analyzer.analyze_frame(frame_path, record.review_type)
+                    frame_analyses.append({
+                        "frame": os.path.basename(frame_path),
+                        "frame_index": i + 1,
+                        "analysis": analysis
+                    })
+
+                yield f"data: {json.dumps({'type': 'progress', 'step': 'summarizing', 'progress': 85, 'message': '正在生成评审汇总...'}, ensure_ascii=False)}\n\n"
+
+                # 汇总分析
+                summary_result = analyzer.generate_summary(frame_analyses, record.review_type)
+
+                # 更新记录
+                record.analysis_result = json.dumps(frame_analyses, ensure_ascii=False)
+                record.extracted_text = summary_result["summary"]
+                record.key_decisions = json.dumps(summary_result["key_decisions"], ensure_ascii=False)
+                record.action_items = json.dumps(summary_result["action_items"], ensure_ascii=False)
+                record.status = "completed"
+
+                yield f"data: {json.dumps({'type': 'progress', 'step': 'syncing', 'progress': 90, 'message': '正在同步到知识库...'}, ensure_ascii=False)}\n\n"
+
+                # 同步到 RAG
+                try:
+                    from rag.rag_api import RAGClient
+                    rag_client = RAGClient()
+                    type_name = review_type_names.get(record.review_type, "评审")
+                    rag_text = f"# {record.title}（{type_name}）\n\n{summary_result['summary']}"
+                    result = rag_client.add_document({
+                        "file_source": f"评审:{record.title}",
+                        "text": rag_text,
+                    })
+                    if result.get("status") in ("success", "update"):
+                        record.rag_doc_id = result.get("doc_on")
+                        record.synced_to_rag = True
+                except Exception as rag_err:
+                    logger.warning(f"评审同步到RAG失败: {rag_err}")
+
+                await record.save()
+
+                yield f"data: {json.dumps({'type': 'progress', 'step': 'done', 'progress': 100, 'message': '分析完成！'}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'result', 'data': {'frame_count': record.frame_count, 'summary': summary_result['summary'][:500], 'key_decisions': summary_result['key_decisions'], 'action_items': summary_result['action_items']}}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+            except Exception as e:
+                logger.error(f"评审分析失败: {e}\n{traceback.format_exc()}")
+                record.status = "failed"
+                record.error_message = str(e)[:500]
+                await record.save()
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"评审分析启动失败: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="评审分析启动失败")
+
+
+@router.delete("/{project_id}/reviews/{review_id}", summary="删除评审记录")
+async def delete_review(
+        project_id: int,
+        review_id: int,
+        project_user: tuple = Depends(verify_admin_or_project_editor)
+):
+    project, current_user = project_user
+    try:
+        record = await ReviewRecord.get_or_none(id=review_id, project_id=project_id)
+        if not record:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="评审记录不存在")
+
+        # 删除RAG文档
+        if record.rag_doc_id:
+            try:
+                from rag.rag_api import RAGClient
+                rag_client = RAGClient()
+                rag_client.delete_document(record.rag_doc_id)
+            except Exception:
+                pass
+
+        # 删除视频文件和帧目录
+        if record.video_file_path and os.path.exists(record.video_file_path):
+            try:
+                os.remove(record.video_file_path)
+                frames_dir = os.path.join(os.path.dirname(record.video_file_path), f"frames_{record.id}")
+                if os.path.exists(frames_dir):
+                    import shutil
+                    shutil.rmtree(frames_dir)
+            except Exception:
+                pass
+
+        await record.delete()
+        return {"message": "评审记录删除成功"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"删除评审记录失败: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="删除评审记录失败")

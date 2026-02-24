@@ -72,6 +72,28 @@ const routes = [
         component: () => import('../views/Knowledge/CaseSet/Index.vue'),
         meta: { title: '用例集', icon: 'Notebook' }
       },
+      // 评审管理
+      {
+        path: 'knowledge/review/requirement',
+        name: 'RequirementReview',
+        component: () => import('../views/Knowledge/Review/Index.vue'),
+        props: { reviewType: 'requirement' },
+        meta: { title: '需求评审', icon: 'Document' }
+      },
+      {
+        path: 'knowledge/review/technical',
+        name: 'TechnicalReview',
+        component: () => import('../views/Knowledge/Review/Index.vue'),
+        props: { reviewType: 'technical' },
+        meta: { title: '技术评审', icon: 'Cpu' }
+      },
+      {
+        path: 'knowledge/review/testcase',
+        name: 'TestcaseReview',
+        component: () => import('../views/Knowledge/Review/Index.vue'),
+        props: { reviewType: 'testcase' },
+        meta: { title: '用例评审', icon: 'Checked' }
+      },
       // 功能测试
       {
         path: 'function-test/requirement',

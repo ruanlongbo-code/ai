@@ -82,6 +82,18 @@
               <el-icon><Notebook /></el-icon>
               <template #title>用例集</template>
             </el-menu-item>
+            <el-menu-item index="/knowledge/review/requirement">
+              <el-icon><Document /></el-icon>
+              <template #title>需求评审</template>
+            </el-menu-item>
+            <el-menu-item index="/knowledge/review/technical">
+              <el-icon><Cpu /></el-icon>
+              <template #title>技术评审</template>
+            </el-menu-item>
+            <el-menu-item index="/knowledge/review/testcase">
+              <el-icon><Checked /></el-icon>
+              <template #title>用例评审</template>
+            </el-menu-item>
           </el-sub-menu>
 
           <!-- 功能测试 -->

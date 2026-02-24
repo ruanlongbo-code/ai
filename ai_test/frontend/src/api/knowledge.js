@@ -41,3 +41,27 @@ export function importFunctionalCaseSet(projectId, requirementIds) {
 export function deleteCaseSet(projectId, caseSetId) {
   return request({ url: `/knowledge/${projectId}/case-sets/${caseSetId}`, method: 'delete' })
 }
+
+// ======================== 评审记录 API ========================
+
+export function getReviewList(projectId, params) {
+  return request({ url: `/knowledge/${projectId}/reviews`, method: 'get', params })
+}
+
+export function getReviewDetail(projectId, reviewId) {
+  return request({ url: `/knowledge/${projectId}/reviews/${reviewId}`, method: 'get' })
+}
+
+export function uploadReviewVideo(projectId, formData) {
+  return request({
+    url: `/knowledge/${projectId}/reviews/upload`,
+    method: 'post',
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 600000 // 10分钟超时，视频文件可能较大
+  })
+}
+
+export function deleteReview(projectId, reviewId) {
+  return request({ url: `/knowledge/${projectId}/reviews/${reviewId}`, method: 'delete' })
+}

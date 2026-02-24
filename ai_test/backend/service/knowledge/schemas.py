@@ -72,3 +72,42 @@ class CaseItemResponse(BaseModel):
     children: Optional[List['CaseItemResponse']] = None
 
 CaseItemResponse.model_rebuild()
+
+
+# ======================== 评审记录 Schemas ========================
+
+class ReviewRecordResponse(BaseModel):
+    id: int
+    project_id: int
+    title: str
+    review_type: str
+    description: Optional[str] = None
+    video_file_name: Optional[str] = None
+    video_size: int = 0
+    frame_count: int = 0
+    status: str
+    analysis_result: Optional[str] = None
+    extracted_text: Optional[str] = None
+    key_decisions: Optional[str] = None
+    action_items: Optional[str] = None
+    synced_to_rag: bool = False
+    error_message: Optional[str] = None
+    creator_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ReviewRecordListResponse(BaseModel):
+    reviews: List[ReviewRecordResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class ReviewAnalysisProgress(BaseModel):
+    """分析进度信息"""
+    status: str
+    progress: int = 0
+    message: str = ""
+    current_step: str = ""

@@ -55,7 +55,7 @@ TORTOISE_ORM = {
                 "service.test_execution.models",
                 "service.test_management.models",
                 "service.schedule.models",
-                "service.knowledge.models",
+                "service.knowledge.models",  # 包含 ReviewRecord
                 "service.ui_test.models",
             ],
             "default_connection": "default",

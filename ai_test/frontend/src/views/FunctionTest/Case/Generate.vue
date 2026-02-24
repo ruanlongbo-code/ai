@@ -50,7 +50,7 @@
                     <el-icon v-if="!generating">
                       <MagicStick/>
                     </el-icon>
-                    {{ generating ? '正在生成...' : '开始生成用例' }}
+                    {{ generating ? '正在生成...' : '🧠 知识增强生成用例' }}
                   </el-button>
                   
                   <!-- 查看用例按钮，只在生成完成后显示 -->
@@ -85,6 +85,39 @@
               <div v-if="requirement.description" class="description-section">
                 <label>需求信息</label>
                 <div class="description-content" v-html="requirement.description || '暂无描述'"></div>
+              </div>
+
+              <!-- 知识增强提示 -->
+              <div class="knowledge-enhance-banner">
+                <el-alert
+                    title="知识增强模式已启用"
+                    type="info"
+                    :closable="false"
+                    show-icon
+                >
+                  <template #default>
+                    <div class="enhance-desc">
+                      生成用例时将自动检索以下知识源，提升用例完整性：
+                      <div class="enhance-sources">
+                        <el-tag size="small" type="primary" effect="plain">
+                          <el-icon><FolderOpened /></el-icon> RAG知识库文档
+                        </el-tag>
+                        <el-tag size="small" type="success" effect="plain">
+                          <el-icon><Cpu /></el-icon> 需求评审记录
+                        </el-tag>
+                        <el-tag size="small" type="warning" effect="plain">
+                          <el-icon><Checked /></el-icon> 技术评审记录
+                        </el-tag>
+                        <el-tag size="small" type="danger" effect="plain">
+                          <el-icon><List /></el-icon> 用例评审记录
+                        </el-tag>
+                        <el-tag size="small" effect="plain">
+                          <el-icon><Notebook /></el-icon> 历史用例集
+                        </el-tag>
+                      </div>
+                    </div>
+                  </template>
+                </el-alert>
               </div>
             </div>
 
@@ -297,7 +330,12 @@ import {
   WarningFilled,
   ChatDotRound,
   View,
-  Download
+  Download,
+  FolderOpened,
+  Cpu,
+  Checked,
+  List,
+  Notebook
 } from '@element-plus/icons-vue'
 import ChatContainer from '@/components/ChatContainer.vue'
 import NotificationList from '@/components/NotificationList.vue'
@@ -1092,6 +1130,30 @@ const markAllNotificationsAsRead = () => {
   line-height: 1.6;
   color: #606266;
   font-size: 14px;
+}
+
+/* 知识增强提示样式 */
+.knowledge-enhance-banner {
+  margin-top: 16px;
+}
+
+.enhance-desc {
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.8;
+}
+
+.enhance-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.enhance-sources .el-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .generation-actions {

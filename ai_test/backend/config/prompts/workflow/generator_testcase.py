@@ -3,8 +3,12 @@ from langchain_core.prompts import PromptTemplate
 prompt = PromptTemplate(
     input_variables=["document", "test_point", "test_cases", "test_case_coverage_report"],
     template="""
-       你是一位资深测试工程师，请基于下面功能整理的出来的测试点,生成标准的测试用例，
-        原始需求文档：
+       你是一位资深测试工程师，请基于下面功能整理的出来的测试点,生成标准的测试用例。
+
+       注意：需求文档中可能包含多个信息来源（原始需求、RAG知识库补充、评审会议知识、历史用例参考），
+       请综合所有信息生成更完善的测试用例。特别是评审会议中提到的关键决策和遗漏场景，必须生成对应的用例覆盖。
+
+        需求文档（含增强知识）：
             {document}
         输入测试点：
             {test_point}
