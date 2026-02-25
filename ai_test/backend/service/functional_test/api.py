@@ -1632,6 +1632,116 @@ async def ai_optimize_requirement(
         )
 
 
+@router.post("/{project_id}/ai_optimize_text", summary="AI优化任意文本为规范需求")
+async def ai_optimize_text(
+        project_id: int,
+        request_data: dict,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    对任意文本内容（需求描述、文档片段、会议纪要等）进行AI优化，
+    生成规范化的需求文档。
+    返回SSE流式输出优化结果。
+    """
+    project, current_user = project_user
+
+    try:
+        text = request_data.get("text", "").strip()
+        title = request_data.get("title", "").strip()
+
+        if not text:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="请输入需要优化的文本内容"
+            )
+
+        from config.settings import llm
+
+        prompt = f"""你是一位资深的软件需求分析师和测试专家。请对以下输入内容进行全面分析和优化，将其转化为规范的需求文档。
+
+## 输入内容
+{f'- **标题**: {title}' if title else '（未提供标题，请根据内容自动生成）'}
+- **内容**:
+{text}
+
+## 优化要求
+请将上述内容整理为规范的需求文档，包含以下部分：
+
+1. **标题**: 简洁、准确的需求标题（不超过100字符）
+2. **描述**: 完整规范的需求描述，包括：
+   - 功能概述（用1-2句话概括核心功能）
+   - 用户场景（描述用户在什么场景下使用该功能）
+   - 功能细节（列出具体的功能点）
+   - 输入输出（明确输入条件和预期输出）
+   - 边界条件（列出需要注意的边界情况）
+   - 非功能性要求（如性能、安全性等，如适用）
+3. **验收标准**: 列出明确的验收标准，方便测试人员编写用例
+4. **潜在风险**: 指出可能存在的技术风险或业务风险
+
+## 重要约束
+- 严禁编造原文中未提及的功能需求
+- 可以对原文进行合理推断和补充，但不能改变原意
+- 需求描述应该结构化、可测试
+- 如果输入内容不是需求相关的，请尽量提取其中的功能性内容
+
+## 输出格式
+请严格按以下JSON格式输出（不要包含markdown代码块标记）：
+{{
+    "optimized_title": "优化后的标题",
+    "optimized_description": "优化后的完整描述（使用markdown格式）",
+    "acceptance_criteria": ["验收标准1", "验收标准2", "..."],
+    "risks": ["风险点1", "风险点2"],
+    "optimization_summary": "优化说明（简要说明做了哪些处理）"
+}}"""
+
+        async def generate():
+            try:
+                full_content = ""
+                async for chunk in llm.astream(prompt):
+                    if chunk.content:
+                        full_content += chunk.content
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk.content}, ensure_ascii=False)}\n\n"
+
+                # 尝试解析完整的JSON结果
+                try:
+                    clean_content = full_content.strip()
+                    if clean_content.startswith("```json"):
+                        clean_content = clean_content[7:]
+                    if clean_content.startswith("```"):
+                        clean_content = clean_content[3:]
+                    if clean_content.endswith("```"):
+                        clean_content = clean_content[:-3]
+                    clean_content = clean_content.strip()
+
+                    result = json.loads(clean_content)
+                    yield f"data: {json.dumps({'type': 'result', 'data': result}, ensure_ascii=False)}\n\n"
+                except json.JSONDecodeError:
+                    # 尝试用正则提取JSON
+                    json_match = re.search(r'\{[\s\S]*\}', full_content)
+                    if json_match:
+                        try:
+                            result = json.loads(json_match.group())
+                            yield f"data: {json.dumps({'type': 'result', 'data': result}, ensure_ascii=False)}\n\n"
+                        except json.JSONDecodeError:
+                            yield f"data: {json.dumps({'type': 'error', 'message': 'AI返回格式解析失败'}, ensure_ascii=False)}\n\n"
+                    else:
+                        yield f"data: {json.dumps({'type': 'error', 'message': 'AI返回格式解析失败'}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                logger.error(f"AI优化文本流式输出失败: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"AI优化文本失败: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI优化文本失败: {str(e)}"
+        )
+
+
 @router.put("/{project_id}/requirements/{requirement_id}/apply_optimization", summary="应用AI优化结果")
 async def apply_ai_optimization(
         project_id: int,

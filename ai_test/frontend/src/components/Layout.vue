@@ -91,11 +91,11 @@
             <el-sub-menu index="knowledge-dataset">
               <template #title>
                 <el-icon><DataBoard /></el-icon>
-                <span>数据集</span>
+                <span>数据训练</span>
               </template>
               <el-menu-item index="/knowledge/case-set">
                 <el-icon><Notebook /></el-icon>
-                <template #title>用例集</template>
+                <template #title>用例数据</template>
               </el-menu-item>
               <el-menu-item index="/knowledge/review/requirement">
                 <el-icon><Document /></el-icon>
@@ -118,13 +118,17 @@
               <el-icon><Operation /></el-icon>
               <span>AI生成测试用例</span>
             </template>
+            <el-menu-item index="/function-test/ai-optimize">
+              <el-icon><MagicStick /></el-icon>
+              <template #title>AI优化需求</template>
+            </el-menu-item>
             <el-menu-item index="/function-test/requirement">
               <el-icon><Document /></el-icon>
-              <template #title>需求管理</template>
+              <template #title>AI生成用例</template>
             </el-menu-item>
             <el-menu-item index="/function-test/case">
               <el-icon><List /></el-icon>
-              <template #title>功能用例</template>
+              <template #title>功能用例集</template>
             </el-menu-item>
             <el-menu-item index="/function-test/defect">
               <el-icon><Warning /></el-icon>

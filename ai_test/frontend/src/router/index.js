@@ -96,10 +96,16 @@ const routes = [
       },
       // 功能测试
       {
+        path: 'function-test/ai-optimize',
+        name: 'FunctionTestAiOptimize',
+        component: () => import('../views/FunctionTest/AiOptimize/Index.vue'),
+        meta: { title: 'AI优化需求', icon: 'MagicStick' }
+      },
+      {
         path: 'function-test/requirement',
         name: 'FunctionTestRequirement',
         component: () => import('../views/FunctionTest/Requirement/List.vue'),
-        meta: { title: '需求管理', icon: 'Document' }
+        meta: { title: 'AI生成用例', icon: 'Document' }
       },
       {
         path: 'function-test/requirement/create',
@@ -123,7 +129,7 @@ const routes = [
         path: 'function-test/case/:projectId?',
         name: 'FunctionTestCase',
         component: () => import('../views/FunctionTest/Case/Index.vue'),
-        meta: { title: '功能用例', icon: 'List' }
+        meta: { title: '功能用例集', icon: 'List' }
       },
       {
         path: 'function-test/defect',
