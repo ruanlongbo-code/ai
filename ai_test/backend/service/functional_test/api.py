@@ -1233,23 +1233,124 @@ async def generate_test_cases_from_requirement(
 @router.post("/extract_requirement", summary="从文档中AI提取需求信息")
 async def extract_requirement_from_document(
         file: Optional[UploadFile] = File(None, description="需求文档文件（支持 PDF、DOCX、TXT、MD）"),
+        image: Optional[UploadFile] = File(None, description="需求截图/图片（支持 PNG、JPG、JPEG、WebP）"),
         url: Optional[str] = Form(None, description="需求文档链接（仅支持公开可访问的链接）"),
-        text: Optional[str] = Form(None, description="粘贴的文档文本内容（推荐用于飞书等需要登录的云文档）"),
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
 ):
-    """从上传的文档文件、粘贴的文本内容或文档链接中，使用AI提取结构化的需求信息。"""
+    """从上传的文档文件、图片截图或文档链接中，使用AI提取结构化的需求信息。"""
     project, current_user = project_user
 
     try:
-        if not (file and file.filename) and not text and not url:
+        has_file = file and file.filename
+        has_image = image and image.filename
+        has_url = url and url.strip()
+
+        if not has_file and not has_image and not has_url:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="请上传文档文件、粘贴文档内容或提供文档链接"
+                detail="请上传文档文件、需求截图或提供文档链接"
             )
 
+        # ===== 图像识别模式 =====
+        if has_image:
+            import base64
+            from langchain_core.messages import HumanMessage
+
+            allowed_image_types = {"image/png", "image/jpeg", "image/jpg", "image/webp"}
+            if image.content_type not in allowed_image_types:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"不支持的图片格式: {image.content_type}，请上传 PNG、JPG、JPEG 或 WebP 格式"
+                )
+
+            image_content = await image.read()
+            if len(image_content) > 10 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="图片大小不能超过 10MB"
+                )
+
+            base64_image = base64.b64encode(image_content).decode('utf-8')
+            content_type = image.content_type or "image/png"
+
+            from config.settings import llm
+
+            vision_message = HumanMessage(
+                content=[
+                    {
+                        "type": "text",
+                        "text": """请仔细分析这张图片，它可能是需求文档、PRD、用户故事、功能规格说明书等的截图。
+
+### 任务
+请从图片中识别出所有文字内容，并从中提取出功能需求的关键信息，按照指定格式输出。
+
+### 提取规则
+1. **需求标题**：从图片文字中提取出最核心的功能需求标题，简洁明确（不超过100个字符）
+2. **需求描述**：从图片文字中提取并整理出详细的功能需求描述，应包含以下方面（如果图片中有提及）：
+   - 功能目标和用途
+   - 用户场景和使用流程
+   - 功能边界和限制条件
+   - 预期的输入输出
+   - 验收标准/验收条件
+   - 特殊要求或约束条件
+3. **优先级建议**：根据内容判断需求优先级（1=低, 2=中, 3=高），如果无法判断，默认为2（中）
+
+### 重要约束
+- 严禁编造或推测图片中未明确提及的信息
+- 请逐字逐句仔细识别图片中的所有文字
+- 如果图片中包含多个需求，提取最主要/核心的一个需求
+- 需求描述应该尽可能详细和结构化，完整保留图片中的原始信息
+- 如果图片内容不是需求相关的，请在描述中说明图片中实际包含的内容
+
+### 输出格式要求
+请严格按照以下JSON格式输出，不要添加任何多余的说明文字或markdown标记：
+{
+    "title": "需求标题",
+    "description": "详细的需求描述，使用换行符分段",
+    "priority": 2
+}"""
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{content_type};base64,{base64_image}"}
+                    },
+                ]
+            )
+
+            result = llm.invoke([vision_message])
+            ai_content = result.content
+
+            # 解析JSON
+            json_match = re.search(r'\{[\s\S]*\}', ai_content)
+            if json_match:
+                try:
+                    ai_result = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="AI返回的数据格式异常，请重试"
+                    )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="AI无法从图片中提取需求信息，请确认图片内容是否清晰"
+                )
+
+            return {
+                "success": True,
+                "message": "图像识别提取需求成功",
+                "data": {
+                    "title": ai_result.get("title", ""),
+                    "description": ai_result.get("description", ""),
+                    "priority": ai_result.get("priority", 2),
+                    "raw_text": ai_result.get("description", "")[:2000]
+                }
+            }
+
+        # ===== 文档文件模式 =====
         extracted_text = ""
 
-        if file and file.filename:
+        if has_file:
             from utils.parser.requirement_document_parser import (
                 extract_text_from_file,
                 SUPPORTED_EXTENSIONS,
@@ -1280,15 +1381,8 @@ async def extract_requirement_from_document(
                     detail=f"文件解析失败: {str(e)}"
                 )
 
-        elif text:
-            extracted_text = text.strip()
-            if not extracted_text:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="粘贴的文本内容为空，请确认已正确复制文档内容"
-                )
-
-        elif url:
+        # ===== URL模式 =====
+        elif has_url:
             from utils.parser.requirement_document_parser import extract_text_from_url
 
             if not url.startswith(('http://', 'https://')):

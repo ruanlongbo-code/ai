@@ -32,7 +32,7 @@
                 <el-icon style="color: #8b5cf6; margin-right: 8px;"><MagicStick /></el-icon>
                 AI 智能提取需求
               </h2>
-              <p class="subtitle">上传需求文档、粘贴文档内容或输入文档链接，AI 将自动提取需求信息并填充到下方表单</p>
+              <p class="subtitle">上传需求文档、截图/图片或输入文档链接，AI 将自动提取需求信息并填充到下方表单</p>
             </div>
           </div>
         </template>
@@ -44,9 +44,9 @@
               <el-icon><UploadFilled /></el-icon>
               上传文档
             </el-radio-button>
-            <el-radio-button value="text">
-              <el-icon><DocumentCopy /></el-icon>
-              粘贴文本
+            <el-radio-button value="image">
+              <el-icon><PictureFilled /></el-icon>
+              图像识别
             </el-radio-button>
             <el-radio-button value="url">
               <el-icon><Link /></el-icon>
@@ -79,8 +79,8 @@
             </el-upload>
           </div>
 
-          <!-- 粘贴文本（推荐用于飞书等需要登录的文档） -->
-          <div v-else-if="extractMode === 'text'" class="extract-input-area">
+          <!-- 图像识别（支持上传截图或粘贴图片） -->
+          <div v-else-if="extractMode === 'image'" class="extract-input-area">
             <el-alert
               type="info"
               :closable="false"
@@ -88,17 +88,47 @@
               style="margin-bottom: 12px;"
             >
               <template #title>
-                <span>推荐用于飞书、Notion 等需要登录才能访问的云文档。请在文档中全选复制（Ctrl+A → Ctrl+C），然后粘贴到下方输入框。</span>
+                <span>支持上传需求截图或直接粘贴图片（Ctrl+V），AI 将自动识别图片中的需求文字内容并提取。推荐用于飞书、Notion 等无法直接导出的文档截图。</span>
               </template>
             </el-alert>
-            <el-input
-              v-model="extractText"
-              type="textarea"
-              :rows="10"
-              placeholder="请将需求文档内容粘贴到此处...&#10;&#10;操作方法：&#10;1. 打开飞书/Notion/Confluence 等文档&#10;2. 全选文档内容（Ctrl+A 或 Cmd+A）&#10;3. 复制（Ctrl+C 或 Cmd+C）&#10;4. 在此处粘贴（Ctrl+V 或 Cmd+V）"
-              maxlength="50000"
-              show-word-limit
-              resize="vertical"
+            
+            <!-- 图片上传/粘贴区域 -->
+            <div
+              class="image-drop-zone"
+              :class="{ 'has-image': imagePreviewUrl, 'drag-over': imageDragOver }"
+              @paste="handleImagePaste"
+              @dragover.prevent="imageDragOver = true"
+              @dragleave="imageDragOver = false"
+              @drop.prevent="handleImageDrop"
+              tabindex="0"
+            >
+              <!-- 已有图片预览 -->
+              <div v-if="imagePreviewUrl" class="image-preview-container">
+                <img :src="imagePreviewUrl" class="image-preview" alt="需求截图预览" />
+                <div class="image-actions">
+                  <el-button type="danger" size="small" circle @click.stop="removeImage">
+                    <el-icon><Delete /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+              <!-- 无图片时的上传提示 -->
+              <div v-else class="image-upload-placeholder">
+                <el-icon class="upload-icon"><PictureFilled /></el-icon>
+                <div class="upload-main-text">
+                  将图片拖到此处、<em @click="triggerImageSelect">点击选择图片</em> 或直接 <strong>Ctrl+V 粘贴截图</strong>
+                </div>
+                <div class="upload-sub-text">
+                  支持 PNG、JPG、JPEG、WebP 格式，文件大小不超过 10MB
+                </div>
+              </div>
+            </div>
+            <!-- 隐藏的文件选择器 -->
+            <input
+              ref="imageInputRef"
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              style="display: none;"
+              @change="handleImageSelect"
             />
           </div>
 
@@ -111,7 +141,7 @@
               style="margin-bottom: 12px;"
             >
               <template #title>
-                <span>⚠️ 飞书、Notion 等需要登录的云文档链接无法直接抓取，建议使用「粘贴文本」方式。此处仅支持公开可访问的网页链接。</span>
+                <span>⚠️ 飞书、Notion 等需要登录的云文档链接无法直接抓取，建议使用「图像识别」方式截图提取。此处仅支持公开可访问的网页链接。</span>
               </template>
             </el-alert>
             <el-input
@@ -309,7 +339,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, MagicStick, UploadFilled, Link, Loading, DocumentCopy } from '@element-plus/icons-vue'
+import { ArrowLeft, MagicStick, UploadFilled, Link, Loading, PictureFilled, Delete } from '@element-plus/icons-vue'
 import {
   createRequirement,
   extractRequirementFromDocument,
@@ -333,13 +363,18 @@ const modules = ref([])
 const createFormRef = ref()
 
 // AI 提取相关
-const extractMode = ref('text') // 'file', 'text', or 'url'
+const extractMode = ref('file') // 'file', 'image', or 'url'
 const uploadFileList = ref([])
 const extractUrl = ref('')
-const extractText = ref('')
 const extracting = ref(false)
 const extractSuccess = ref(false)
 const uploadRef = ref()
+
+// 图像识别相关
+const imageFile = ref(null)
+const imagePreviewUrl = ref('')
+const imageDragOver = ref(false)
+const imageInputRef = ref()
 
 // 创建表单
 const createForm = reactive({
@@ -536,8 +571,8 @@ const handleSubmit = async () => {
 const canExtract = computed(() => {
   if (extractMode.value === 'file') {
     return uploadFileList.value.length > 0
-  } else if (extractMode.value === 'text') {
-    return extractText.value.trim().length > 0
+  } else if (extractMode.value === 'image') {
+    return !!imageFile.value
   } else {
     return extractUrl.value.trim().length > 0
   }
@@ -583,13 +618,13 @@ const handleExtract = async () => {
         return
       }
       formData.append('file', uploadFileList.value[0].raw)
-    } else if (extractMode.value === 'text') {
-      if (!extractText.value.trim()) {
-        ElMessage.warning('请粘贴需求文档内容')
+    } else if (extractMode.value === 'image') {
+      if (!imageFile.value) {
+        ElMessage.warning('请先上传或粘贴需求截图')
         extracting.value = false
         return
       }
-      formData.append('text', extractText.value.trim())
+      formData.append('image', imageFile.value)
     } else {
       if (!extractUrl.value.trim()) {
         ElMessage.warning('请输入文档链接地址')
@@ -627,6 +662,84 @@ const handleExtract = async () => {
   } finally {
     extracting.value = false
   }
+}
+
+// === 图像识别相关方法 ===
+
+// 触发文件选择
+const triggerImageSelect = () => {
+  imageInputRef.value?.click()
+}
+
+// 处理文件选择
+const handleImageSelect = (event) => {
+  const file = event.target.files[0]
+  if (file) {
+    processImageFile(file)
+  }
+  // 清空 input，允许重复选择同一文件
+  event.target.value = ''
+}
+
+// 处理粘贴图片
+const handleImagePaste = (event) => {
+  const items = event.clipboardData?.items
+  if (!items) return
+  
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      event.preventDefault()
+      const file = item.getAsFile()
+      if (file) {
+        processImageFile(file)
+      }
+      return
+    }
+  }
+}
+
+// 处理拖放图片
+const handleImageDrop = (event) => {
+  imageDragOver.value = false
+  const files = event.dataTransfer?.files
+  if (files && files.length > 0) {
+    const file = files[0]
+    if (file.type.startsWith('image/')) {
+      processImageFile(file)
+    } else {
+      ElMessage.warning('请拖入图片文件')
+    }
+  }
+}
+
+// 处理图片文件
+const processImageFile = (file) => {
+  // 验证文件类型
+  const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp']
+  if (!allowedTypes.includes(file.type)) {
+    ElMessage.error('不支持的图片格式，请上传 PNG、JPG、JPEG 或 WebP 格式')
+    return
+  }
+  // 验证大小
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('图片大小不能超过 10MB')
+    return
+  }
+  
+  imageFile.value = file
+  
+  // 生成预览
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    imagePreviewUrl.value = e.target.result
+  }
+  reader.readAsDataURL(file)
+}
+
+// 移除图片
+const removeImage = () => {
+  imageFile.value = null
+  imagePreviewUrl.value = ''
 }
 
 const handleCancel = async () => {
@@ -741,6 +854,99 @@ onMounted(async () => {
 }
 
 .upload-content .el-upload__tip {
+  color: #909399;
+  font-size: 12px;
+}
+
+/* 图像识别区域 */
+.image-drop-zone {
+  width: 100%;
+  min-height: 200px;
+  border: 2px dashed #d9d9d9;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+  outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.image-drop-zone:hover,
+.image-drop-zone:focus {
+  border-color: #8b5cf6;
+  background: #faf5ff;
+}
+
+.image-drop-zone.drag-over {
+  border-color: #8b5cf6;
+  background: #f3e8ff;
+  border-width: 3px;
+}
+
+.image-drop-zone.has-image {
+  border-style: solid;
+  border-color: #8b5cf6;
+  padding: 8px;
+  min-height: auto;
+}
+
+.image-preview-container {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.image-preview {
+  max-width: 100%;
+  max-height: 500px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.image-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.image-upload-placeholder {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.image-upload-placeholder .upload-icon {
+  font-size: 56px;
+  color: #8b5cf6;
+  margin-bottom: 16px;
+}
+
+.image-upload-placeholder .upload-main-text {
+  color: #606266;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.image-upload-placeholder .upload-main-text em {
+  color: #8b5cf6;
+  font-style: normal;
+  cursor: pointer;
+}
+
+.image-upload-placeholder .upload-main-text em:hover {
+  text-decoration: underline;
+}
+
+.image-upload-placeholder .upload-main-text strong {
+  color: #8b5cf6;
+}
+
+.image-upload-placeholder .upload-sub-text {
   color: #909399;
   font-size: 12px;
 }
