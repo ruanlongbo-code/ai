@@ -1439,6 +1439,204 @@ async def extract_requirement_from_document(
         )
 
 
+@router.post("/extract_requirement_stream", summary="流式混合提取需求信息（文本+图片+文档+视频+链接）")
+async def extract_requirement_stream(
+        text: Optional[str] = Form(None, description="直接输入的文本内容"),
+        files: list[UploadFile] = File(default=[], description="上传的文件列表（文档/图片/视频）"),
+        url: Optional[str] = Form(None, description="文档链接"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    统一混合输入流式提取接口。
+    支持同时接收文本、多个文件（文档/图片/视频）和URL，
+    并行处理后合并所有内容，使用AI流式提取需求信息。
+    """
+    project, current_user = project_user
+
+    has_text = text and text.strip()
+    has_files = files and len(files) > 0 and any(f.filename for f in files)
+    has_url = url and url.strip()
+
+    if not has_text and not has_files and not has_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请输入文本、上传文件或提供链接"
+        )
+
+    import base64
+    import os
+    from langchain_core.messages import HumanMessage
+
+    # ---- 预处理阶段：并行读取所有文件内容 ----
+    all_text_parts = []
+    image_data_list = []  # [(base64_data, content_type)]
+    video_filenames = []
+
+    # 1. 直接文本
+    if has_text:
+        all_text_parts.append(f"【用户输入文本】\n{text.strip()}")
+
+    # 2. 处理上传的文件
+    if has_files:
+        for f in files:
+            if not f.filename:
+                continue
+            fname = f.filename.lower()
+            ftype = f.content_type or ""
+            file_content = await f.read()
+
+            if not file_content:
+                continue
+
+            # 图片文件
+            if ftype.startswith("image/") or fname.endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
+                if len(file_content) <= 10 * 1024 * 1024:
+                    b64 = base64.b64encode(file_content).decode('utf-8')
+                    ct = ftype if ftype else "image/png"
+                    image_data_list.append((b64, ct, f.filename))
+
+            # 视频文件
+            elif ftype.startswith("video/") or fname.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+                video_filenames.append(f.filename)
+                # 对视频暂时只记录文件名，提示用户
+                all_text_parts.append(f"【视频文件】{f.filename}（视频内容需人工确认）")
+
+            # 文档文件
+            else:
+                ext = os.path.splitext(f.filename)[1].lower()
+                doc_exts = {'.pdf', '.docx', '.doc', '.txt', '.md'}
+                if ext in doc_exts:
+                    try:
+                        from utils.parser.requirement_document_parser import extract_text_from_file
+                        doc_text = extract_text_from_file(f.filename, file_content)
+                        if doc_text and doc_text.strip():
+                            # 截断过长文档
+                            if len(doc_text) > 6000:
+                                doc_text = doc_text[:6000] + "\n[...文档内容过长已截断...]"
+                            all_text_parts.append(f"【文档：{f.filename}】\n{doc_text}")
+                    except Exception as e:
+                        all_text_parts.append(f"【文档解析失败：{f.filename}】错误: {str(e)}")
+
+    # 3. URL
+    if has_url:
+        try:
+            from utils.parser.requirement_document_parser import extract_text_from_url
+            if url.startswith(('http://', 'https://')):
+                url_text = extract_text_from_url(url)
+                if url_text and url_text.strip():
+                    if len(url_text) > 6000:
+                        url_text = url_text[:6000] + "\n[...链接内容过长已截断...]"
+                    all_text_parts.append(f"【链接内容：{url}】\n{url_text}")
+        except Exception as e:
+            all_text_parts.append(f"【链接获取失败：{url}】错误: {str(e)}")
+
+    merged_text = "\n\n---\n\n".join(all_text_parts) if all_text_parts else ""
+
+    from config.settings import llm
+
+    # ---- 构建LLM消息 ----
+    content_blocks = []
+
+    # 精简的提取 prompt
+    extract_prompt = """你是资深需求分析师。请从以下输入内容中快速提取功能需求信息。
+
+## 规则
+1. 标题：简洁明确，不超过100字符
+2. 描述：结构化整理，包含功能目标、场景、细节、输入输出、边界条件
+3. 优先级：1=低 2=中 3=高，默认2
+4. 严禁编造未提及的信息
+
+## 输出JSON（不要markdown标记）
+{"title":"需求标题","description":"详细描述","priority":2}"""
+
+    if merged_text and image_data_list:
+        # 混合模式：文本+图片
+        content_blocks.append({"type": "text", "text": f"{extract_prompt}\n\n## 文本内容\n{merged_text}\n\n## 以下是图片内容，请识别图中文字后一并提取需求："})
+        for b64, ct, fname in image_data_list:
+            content_blocks.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{ct};base64,{b64}"}
+            })
+    elif image_data_list:
+        # 纯图片模式
+        content_blocks.append({"type": "text", "text": f"{extract_prompt}\n\n请识别以下图片中的文字内容并提取需求："})
+        for b64, ct, fname in image_data_list:
+            content_blocks.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{ct};base64,{b64}"}
+            })
+    elif merged_text:
+        # 纯文本模式
+        content_blocks.append({"type": "text", "text": f"{extract_prompt}\n\n## 输入内容\n{merged_text}"})
+    else:
+        raise HTTPException(status_code=400, detail="未能获取到任何有效内容")
+
+    message = HumanMessage(content=content_blocks)
+
+    # ---- 流式输出 ----
+    async def generate():
+        try:
+            input_summary_parts = []
+            if has_text:
+                input_summary_parts.append("文本")
+            if image_data_list:
+                input_summary_parts.append(f"{len(image_data_list)}张图片")
+            doc_count = sum(1 for p in all_text_parts if p.startswith("【文档"))
+            if doc_count:
+                input_summary_parts.append(f"{doc_count}个文档")
+            if has_url:
+                input_summary_parts.append("链接")
+            if video_filenames:
+                input_summary_parts.append(f"{len(video_filenames)}个视频")
+
+            summary = "、".join(input_summary_parts)
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'已接收到 {summary}，正在AI分析中...', 'progress': 20}, ensure_ascii=False)}\n\n"
+
+            full_content = ""
+            async for chunk in llm.astream([message]):
+                if chunk.content:
+                    full_content += chunk.content
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk.content}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': 'AI分析完成，正在解析结果...', 'progress': 90}, ensure_ascii=False)}\n\n"
+
+            # 解析JSON结果
+            clean = full_content.strip()
+            if clean.startswith("```json"):
+                clean = clean[7:]
+            if clean.startswith("```"):
+                clean = clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            clean = clean.strip()
+
+            json_match = re.search(r'\{[\s\S]*\}', clean)
+            if json_match:
+                try:
+                    result = json.loads(json_match.group())
+                    yield f"data: {json.dumps({'type': 'result', 'data': result}, ensure_ascii=False)}\n\n"
+                except json.JSONDecodeError:
+                    yield f"data: {json.dumps({'type': 'result', 'data': {'title': '', 'description': full_content, 'priority': 2}}, ensure_ascii=False)}\n\n"
+            else:
+                yield f"data: {json.dumps({'type': 'result', 'data': {'title': '', 'description': full_content, 'priority': 2}}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'type': 'done', 'progress': 100})}\n\n"
+
+        except Exception as e:
+            logger.error(f"流式提取失败: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
+
+
 @router.get("/{project_id}/requirements/{requirement_id}/export_xmind", summary="导出测试用例为XMind文件")
 async def export_cases_as_xmind(
         project_id: int,

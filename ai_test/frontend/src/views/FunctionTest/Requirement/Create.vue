@@ -22,7 +22,7 @@
       </div>
     </div>
 
-    <!-- AI 文档提取区域 -->
+    <!-- AI 智能提取区域 -->
     <div class="page-content ai-extract-section">
       <el-card>
         <template #header>
@@ -32,131 +32,140 @@
                 <el-icon style="color: #8b5cf6; margin-right: 8px;"><MagicStick /></el-icon>
                 AI 智能提取需求
               </h2>
-              <p class="subtitle">上传需求文档、截图/图片或输入文档链接，AI 将自动提取需求信息并填充到下方表单</p>
+              <p class="subtitle">在下方输入框中输入文本、粘贴图片、上传文档/视频，AI 将自动提取需求信息</p>
             </div>
           </div>
         </template>
 
         <div class="extract-content">
-          <!-- 提取方式选择 -->
-          <el-radio-group v-model="extractMode" size="large" class="extract-mode-selector">
-            <el-radio-button value="file">
-              <el-icon><UploadFilled /></el-icon>
-              上传文档
-            </el-radio-button>
-            <el-radio-button value="image">
-              <el-icon><PictureFilled /></el-icon>
-              图像识别
-            </el-radio-button>
-            <el-radio-button value="url">
-              <el-icon><Link /></el-icon>
-              文档链接
-            </el-radio-button>
-          </el-radio-group>
+          <!-- ======= 统一输入区域 ======= -->
+          <div
+            class="unified-input-area"
+            :class="{ 'drag-over': isDragOver, 'is-focused': isInputFocused }"
+            @dragover.prevent="handleDragOver"
+            @dragleave="handleDragLeave"
+            @drop.prevent="handleDrop"
+          >
+            <!-- 文本输入区 -->
+            <textarea
+              ref="textareaRef"
+              v-model="inputText"
+              class="input-textarea"
+              placeholder="在此输入或粘贴需求文本、也可以直接粘贴图片 (Ctrl+V)..."
+              @paste="handlePaste"
+              @focus="isInputFocused = true"
+              @blur="isInputFocused = false"
+              rows="5"
+            ></textarea>
 
-          <!-- 文件上传 -->
-          <div v-if="extractMode === 'file'" class="extract-input-area">
-            <el-upload
-              ref="uploadRef"
-              v-model:file-list="uploadFileList"
-              :auto-upload="false"
-              :limit="1"
-              :on-exceed="handleExceed"
-              :on-change="handleFileChange"
-              accept=".pdf,.docx,.doc,.txt,.md"
-              drag
-              class="doc-upload"
-            >
-              <div class="upload-content">
-                <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-                <div class="el-upload__text">
-                  将文件拖到此处，或 <em>点击选择文件</em>
-                </div>
-                <div class="el-upload__tip">
-                  支持 PDF、Word（.docx）、TXT、Markdown 格式，文件大小不超过 10MB
-                </div>
+            <!-- 附件预览区域 -->
+            <div v-if="attachments.length > 0" class="attachments-area">
+              <div class="attachments-title">
+                <el-icon><Paperclip /></el-icon>
+                <span>已添加 {{ attachments.length }} 个附件</span>
               </div>
-            </el-upload>
-          </div>
-
-          <!-- 图像识别（支持上传截图或粘贴图片） -->
-          <div v-else-if="extractMode === 'image'" class="extract-input-area">
-            <el-alert
-              type="info"
-              :closable="false"
-              show-icon
-              style="margin-bottom: 12px;"
-            >
-              <template #title>
-                <span>支持上传需求截图或直接粘贴图片（Ctrl+V），AI 将自动识别图片中的需求文字内容并提取。推荐用于飞书、Notion 等无法直接导出的文档截图。</span>
-              </template>
-            </el-alert>
-            
-            <!-- 图片上传/粘贴区域 -->
-            <div
-              class="image-drop-zone"
-              :class="{ 'has-image': imagePreviewUrl, 'drag-over': imageDragOver }"
-              @paste="handleImagePaste"
-              @dragover.prevent="imageDragOver = true"
-              @dragleave="imageDragOver = false"
-              @drop.prevent="handleImageDrop"
-              tabindex="0"
-            >
-              <!-- 已有图片预览 -->
-              <div v-if="imagePreviewUrl" class="image-preview-container">
-                <img :src="imagePreviewUrl" class="image-preview" alt="需求截图预览" />
-                <div class="image-actions">
-                  <el-button type="danger" size="small" circle @click.stop="removeImage">
-                    <el-icon><Delete /></el-icon>
-                  </el-button>
-                </div>
-              </div>
-              <!-- 无图片时的上传提示 -->
-              <div v-else class="image-upload-placeholder">
-                <el-icon class="upload-icon"><PictureFilled /></el-icon>
-                <div class="upload-main-text">
-                  将图片拖到此处、<em @click="triggerImageSelect">点击选择图片</em> 或直接 <strong>Ctrl+V 粘贴截图</strong>
-                </div>
-                <div class="upload-sub-text">
-                  支持 PNG、JPG、JPEG、WebP 格式，文件大小不超过 10MB
+              <div class="attachments-grid">
+                <div
+                  v-for="(att, idx) in attachments"
+                  :key="idx"
+                  class="attachment-item"
+                  :class="att.type"
+                >
+                  <!-- 图片预览 -->
+                  <template v-if="att.type === 'image'">
+                    <div class="att-preview image-preview-thumb">
+                      <img :src="att.previewUrl" :alt="att.name" />
+                    </div>
+                  </template>
+                  <!-- 视频预览 -->
+                  <template v-else-if="att.type === 'video'">
+                    <div class="att-preview video-preview-thumb">
+                      <el-icon class="file-type-icon"><VideoCamera /></el-icon>
+                    </div>
+                  </template>
+                  <!-- 文档预览 -->
+                  <template v-else>
+                    <div class="att-preview doc-preview-thumb">
+                      <el-icon class="file-type-icon"><Document /></el-icon>
+                    </div>
+                  </template>
+                  <div class="att-info">
+                    <span class="att-name" :title="att.name">{{ att.name }}</span>
+                    <span class="att-size">{{ formatFileSize(att.size) }}</span>
+                  </div>
+                  <el-button
+                    class="att-remove"
+                    type="danger"
+                    :icon="Close"
+                    size="small"
+                    circle
+                    plain
+                    @click="removeAttachment(idx)"
+                  />
                 </div>
               </div>
             </div>
-            <!-- 隐藏的文件选择器 -->
-            <input
-              ref="imageInputRef"
-              type="file"
-              accept="image/png,image/jpeg,image/jpg,image/webp"
-              style="display: none;"
-              @change="handleImageSelect"
-            />
+
+            <!-- URL 输入（可选） -->
+            <div v-if="showUrlInput" class="url-input-row">
+              <el-input
+                v-model="inputUrl"
+                placeholder="输入公开可访问的文档链接 https://..."
+                size="default"
+                clearable
+              >
+                <template #prepend>
+                  <el-icon><Link /></el-icon>
+                </template>
+                <template #append>
+                  <el-button @click="showUrlInput = false">
+                    <el-icon><Close /></el-icon>
+                  </el-button>
+                </template>
+              </el-input>
+            </div>
+
+            <!-- 底部工具栏 -->
+            <div class="input-toolbar">
+              <div class="toolbar-left">
+                <el-tooltip content="上传文档 (PDF/Word/TXT/MD)" placement="top">
+                  <el-button text class="toolbar-btn" @click="triggerFileSelect('document')">
+                    <el-icon><FolderOpened /></el-icon>
+                    <span>文档</span>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip content="上传/粘贴图片 (PNG/JPG/WebP)" placement="top">
+                  <el-button text class="toolbar-btn" @click="triggerFileSelect('image')">
+                    <el-icon><PictureFilled /></el-icon>
+                    <span>图片</span>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip content="上传视频 (MP4/AVI/MOV)" placement="top">
+                  <el-button text class="toolbar-btn" @click="triggerFileSelect('video')">
+                    <el-icon><VideoCamera /></el-icon>
+                    <span>视频</span>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip content="添加文档链接" placement="top">
+                  <el-button text class="toolbar-btn" @click="showUrlInput = !showUrlInput">
+                    <el-icon><Link /></el-icon>
+                    <span>链接</span>
+                  </el-button>
+                </el-tooltip>
+              </div>
+              <div class="toolbar-right">
+                <span class="input-hint">
+                  <el-icon><InfoFilled /></el-icon>
+                  支持拖拽文件、Ctrl+V 粘贴图片/文本
+                </span>
+              </div>
+            </div>
           </div>
 
-          <!-- URL 输入 -->
-          <div v-else class="extract-input-area">
-            <el-alert
-              type="warning"
-              :closable="false"
-              show-icon
-              style="margin-bottom: 12px;"
-            >
-              <template #title>
-                <span>⚠️ 飞书、Notion 等需要登录的云文档链接无法直接抓取，建议使用「图像识别」方式截图提取。此处仅支持公开可访问的网页链接。</span>
-              </template>
-            </el-alert>
-            <el-input
-              v-model="extractUrl"
-              placeholder="请输入公开可访问的需求文档链接，如 https://example.com/prd.html"
-              size="large"
-              clearable
-            >
-              <template #prepend>
-                <el-icon><Link /></el-icon>
-              </template>
-            </el-input>
-          </div>
+          <!-- 隐藏的文件选择器 -->
+          <input ref="fileInputRef" type="file" style="display:none;" @change="handleFileInputChange" :accept="fileInputAccept" multiple />
 
-          <!-- 提取按钮 -->
+          <!-- 提取按钮 & 进度 -->
           <div class="extract-actions">
             <el-button
               type="primary"
@@ -168,13 +177,21 @@
               <el-icon v-if="!extracting"><MagicStick /></el-icon>
               {{ extracting ? 'AI 正在提取中...' : 'AI 智能提取' }}
             </el-button>
-            <span v-if="extracting" class="extract-tip">
-              <el-icon class="is-loading"><Loading /></el-icon>
-              AI 正在分析文档并提取需求信息，请稍候...
-            </span>
           </div>
 
-          <!-- 提取结果提示 -->
+          <!-- 流式进度区域 -->
+          <div v-if="extracting || streamMessages.length > 0" class="stream-progress-area">
+            <div class="progress-bar-container" v-if="extracting">
+              <el-progress :percentage="extractProgress" :stroke-width="6" :show-text="false" color="#8b5cf6" />
+              <span class="progress-text">{{ extractProgressText }}</span>
+            </div>
+            <div class="stream-content" v-if="streamRawContent">
+              <div class="stream-label">AI 分析输出：</div>
+              <div class="stream-text">{{ streamRawContent }}</div>
+            </div>
+          </div>
+
+          <!-- 提取成功提示 -->
           <el-alert
             v-if="extractSuccess"
             title="需求信息提取成功！"
@@ -339,10 +356,14 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, MagicStick, UploadFilled, Link, Loading, PictureFilled, Delete } from '@element-plus/icons-vue'
+import {
+  ArrowLeft, MagicStick, UploadFilled, Link, Loading,
+  PictureFilled, Delete, Close, Document, VideoCamera,
+  FolderOpened, InfoFilled, Paperclip
+} from '@element-plus/icons-vue'
 import {
   createRequirement,
-  extractRequirementFromDocument,
+  extractRequirementStream,
   REQUIREMENT_STATUS_LABELS,
   REQUIREMENT_PRIORITY_LABELS,
   REQUIREMENT_PRIORITY_COLORS,
@@ -362,27 +383,33 @@ const saveType = ref('')
 const modules = ref([])
 const createFormRef = ref()
 
-// AI 提取相关
-const extractMode = ref('file') // 'file', 'image', or 'url'
-const uploadFileList = ref([])
-const extractUrl = ref('')
+// ===== 统一输入区域 =====
+const inputText = ref('')
+const inputUrl = ref('')
+const showUrlInput = ref(false)
+const attachments = ref([])       // [{type:'image'|'document'|'video', file:File, name, size, previewUrl?}]
+const isDragOver = ref(false)
+const isInputFocused = ref(false)
+const textareaRef = ref()
+const fileInputRef = ref()
+const fileInputAccept = ref('*')  // 动态切换
+const currentFileType = ref('')   // 'image'|'document'|'video'
+
+// 提取状态
 const extracting = ref(false)
 const extractSuccess = ref(false)
-const uploadRef = ref()
-
-// 图像识别相关
-const imageFile = ref(null)
-const imagePreviewUrl = ref('')
-const imageDragOver = ref(false)
-const imageInputRef = ref()
+const extractProgress = ref(0)
+const extractProgressText = ref('')
+const streamMessages = ref([])
+const streamRawContent = ref('')
 
 // 创建表单
 const createForm = reactive({
   title: '',
   module_id: null,
   description: '',
-  priority: REQUIREMENT_PRIORITY.MEDIUM, // 默认中等优先级
-  status: REQUIREMENT_STATUS.DRAFT // 默认草稿状态
+  priority: REQUIREMENT_PRIORITY.MEDIUM,
+  status: REQUIREMENT_STATUS.DRAFT
 })
 
 // 表单验证规则
@@ -413,20 +440,229 @@ const projectId = computed(() => {
   return project.id
 })
 
-// 可用的初始状态（创建时只能选择草稿或直接提交审核）
 const availableStatuses = computed(() => ({
   [REQUIREMENT_STATUS.DRAFT]: REQUIREMENT_STATUS_LABELS[REQUIREMENT_STATUS.DRAFT],
   [REQUIREMENT_STATUS.REVIEWING]: REQUIREMENT_STATUS_LABELS[REQUIREMENT_STATUS.REVIEWING]
 }))
 
-// 新增：限制优先级选项为 1-3
 const availablePriorityLabels = computed(() => ({
   [REQUIREMENT_PRIORITY.LOW]: REQUIREMENT_PRIORITY_LABELS[REQUIREMENT_PRIORITY.LOW],
   [REQUIREMENT_PRIORITY.MEDIUM]: REQUIREMENT_PRIORITY_LABELS[REQUIREMENT_PRIORITY.MEDIUM],
   [REQUIREMENT_PRIORITY.HIGH]: REQUIREMENT_PRIORITY_LABELS[REQUIREMENT_PRIORITY.HIGH]
 }))
 
-// 方法
+const canExtract = computed(() => {
+  return inputText.value.trim().length > 0 ||
+    attachments.value.length > 0 ||
+    (showUrlInput.value && inputUrl.value.trim().length > 0)
+})
+
+// ===== 工具方法 =====
+const formatFileSize = (bytes) => {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+const getFileCategory = (file) => {
+  const name = file.name.toLowerCase()
+  const type = file.type || ''
+  if (type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|svg)$/.test(name)) return 'image'
+  if (type.startsWith('video/') || /\.(mp4|avi|mov|mkv|webm|flv)$/.test(name)) return 'video'
+  return 'document'
+}
+
+const addFile = (file) => {
+  // 检查大小限制 20MB
+  if (file.size > 20 * 1024 * 1024) {
+    ElMessage.warning(`文件 "${file.name}" 超过 20MB 大小限制`)
+    return
+  }
+  // 检查重复
+  if (attachments.value.some(a => a.name === file.name && a.size === file.size)) {
+    ElMessage.info(`文件 "${file.name}" 已添加`)
+    return
+  }
+
+  const category = getFileCategory(file)
+  const att = {
+    type: category,
+    file: file,
+    name: file.name,
+    size: file.size,
+    previewUrl: ''
+  }
+
+  // 图片预览
+  if (category === 'image') {
+    const reader = new FileReader()
+    reader.onload = (e) => { att.previewUrl = e.target.result }
+    reader.readAsDataURL(file)
+  }
+
+  attachments.value.push(att)
+}
+
+const removeAttachment = (idx) => {
+  attachments.value.splice(idx, 1)
+}
+
+// ===== 拖拽 =====
+const handleDragOver = () => { isDragOver.value = true }
+const handleDragLeave = () => { isDragOver.value = false }
+const handleDrop = (event) => {
+  isDragOver.value = false
+  const files = event.dataTransfer?.files
+  if (files) {
+    for (const f of files) {
+      addFile(f)
+    }
+  }
+}
+
+// ===== 粘贴 =====
+const handlePaste = (event) => {
+  const items = event.clipboardData?.items
+  if (!items) return
+
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      event.preventDefault()
+      const file = item.getAsFile()
+      if (file) addFile(file)
+      return
+    }
+  }
+  // 纯文本粘贴由 textarea v-model 自动处理
+}
+
+// ===== 文件选择 =====
+const triggerFileSelect = (type) => {
+  currentFileType.value = type
+  if (type === 'document') {
+    fileInputAccept.value = '.pdf,.docx,.doc,.txt,.md'
+  } else if (type === 'image') {
+    fileInputAccept.value = 'image/png,image/jpeg,image/jpg,image/webp,image/gif'
+  } else if (type === 'video') {
+    fileInputAccept.value = 'video/mp4,video/avi,video/quicktime,video/webm,.mp4,.avi,.mov,.mkv,.webm'
+  }
+  // 需要等 accept 更新后再 click
+  setTimeout(() => {
+    fileInputRef.value?.click()
+  }, 50)
+}
+
+const handleFileInputChange = (event) => {
+  const files = event.target.files
+  if (files) {
+    for (const f of files) {
+      addFile(f)
+    }
+  }
+  event.target.value = ''
+}
+
+// ===== AI 提取 =====
+const handleExtract = async () => {
+  if (!projectId.value) return
+  if (!canExtract.value) {
+    ElMessage.warning('请先输入文本、上传文件或提供链接')
+    return
+  }
+
+  extracting.value = true
+  extractSuccess.value = false
+  extractProgress.value = 5
+  extractProgressText.value = '准备数据中...'
+  streamMessages.value = []
+  streamRawContent.value = ''
+
+  try {
+    const formData = new FormData()
+
+    // 文本
+    if (inputText.value.trim()) {
+      formData.append('text', inputText.value.trim())
+    }
+
+    // 文件
+    for (const att of attachments.value) {
+      formData.append('files', att.file)
+    }
+
+    // URL
+    if (showUrlInput.value && inputUrl.value.trim()) {
+      formData.append('url', inputUrl.value.trim())
+    }
+
+    extractProgress.value = 10
+    extractProgressText.value = '上传数据中...'
+
+    const response = await extractRequirementStream(projectId.value, formData)
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      throw new Error(errData.detail || `请求失败: ${response.status}`)
+    }
+
+    // 读取 SSE 流
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const dataStr = line.slice(6).trim()
+        if (!dataStr || dataStr === '[DONE]') continue
+
+        try {
+          const data = JSON.parse(dataStr)
+
+          if (data.type === 'progress') {
+            extractProgress.value = data.progress || extractProgress.value
+            extractProgressText.value = data.message || ''
+            streamMessages.value.push(data.message)
+          } else if (data.type === 'chunk') {
+            streamRawContent.value += data.content
+          } else if (data.type === 'result') {
+            const result = data.data
+            if (result) {
+              if (result.title) createForm.title = result.title
+              if (result.description) createForm.description = result.description
+              if (result.priority && [1, 2, 3].includes(result.priority)) {
+                createForm.priority = result.priority
+              }
+              extractSuccess.value = true
+              ElMessage.success('AI 需求信息提取成功，已自动填充到表单中')
+            }
+          } else if (data.type === 'done') {
+            extractProgress.value = 100
+            extractProgressText.value = '提取完成'
+          } else if (data.type === 'error') {
+            ElMessage.error(data.message || 'AI提取失败')
+          }
+        } catch (e) {
+          // 忽略解析错误
+        }
+      }
+    }
+  } catch (error) {
+    console.error('AI提取失败:', error)
+    ElMessage.error(error.message || 'AI 提取失败，请稍后重试')
+  } finally {
+    extracting.value = false
+  }
+}
+
+// ===== 表单相关 =====
 const getPriorityDescription = (priority) => {
   const descriptions = {
     [REQUIREMENT_PRIORITY.LOW]: '可以延后处理的需求',
@@ -457,15 +693,10 @@ const getStatusTagType = (status) => {
 }
 
 const loadModules = async () => {
-  if (!projectId.value) {
-    return
-  }
-  
+  if (!projectId.value) return
   try {
     const response = await getProjectModules(projectId.value)
     modules.value = (response.data && response.data.datas) ? response.data.datas : []
-    
-    // 如果只有一个模块，自动选择
     if (modules.value.length === 1) {
       createForm.module_id = modules.value[0].id
     }
@@ -485,15 +716,8 @@ const validateForm = async () => {
 }
 
 const saveRequirement = async (status) => {
-  if (!projectId.value) {
-    throw new Error('项目ID不能为空')
-  }
-  
-  const formData = {
-    ...createForm,
-    status
-  }
-  
+  if (!projectId.value) throw new Error('项目ID不能为空')
+  const formData = { ...createForm, status }
   try {
     const response = await createRequirement(projectId.value, formData)
     return response.data
@@ -503,59 +727,30 @@ const saveRequirement = async (status) => {
   }
 }
 
-const handleSaveDraft = async () => {
-  if (!(await validateForm())) return
-  
-  saveType.value = 'draft'
-  saving.value = true
-  
-  try {
-    await saveRequirement(REQUIREMENT_STATUS.DRAFT)
-    ElMessage.success('需求草稿保存成功')
-    router.push('/function-test/requirement')
-  } catch (error) {
-    ElMessage.error('保存草稿失败')
-  } finally {
-    saving.value = false
-    saveType.value = ''
-  }
-}
-
 const handleSubmit = async () => {
   if (!(await validateForm())) return
-  
-  // 如果没有填写描述，提醒用户
+
   if (!createForm.description.trim()) {
     try {
       await ElMessageBox.confirm(
         '您还没有填写需求描述，详细的描述有助于生成更准确的测试用例。确定要继续提交吗？',
         '提示',
-        {
-          confirmButtonText: '继续提交',
-          cancelButtonText: '返回编辑',
-          type: 'warning'
-        }
+        { confirmButtonText: '继续提交', cancelButtonText: '返回编辑', type: 'warning' }
       )
-    } catch {
-      return
-    }
+    } catch { return }
   }
-  
+
   saveType.value = 'submit'
   saving.value = true
-  
+
   try {
-    const targetStatus = createForm.status === REQUIREMENT_STATUS.DRAFT 
-      ? REQUIREMENT_STATUS.DRAFT 
+    const targetStatus = createForm.status === REQUIREMENT_STATUS.DRAFT
+      ? REQUIREMENT_STATUS.DRAFT
       : REQUIREMENT_STATUS.REVIEWING
-      
+
     await saveRequirement(targetStatus)
-    
-    const message = targetStatus === REQUIREMENT_STATUS.DRAFT 
-      ? '需求创建成功' 
-      : '需求已提交审核'
+    const message = targetStatus === REQUIREMENT_STATUS.DRAFT ? '需求创建成功' : '需求已提交审核'
     ElMessage.success(message)
-    
     router.push('/function-test/requirement')
   } catch (error) {
     ElMessage.error('提交需求失败')
@@ -565,207 +760,20 @@ const handleSubmit = async () => {
   }
 }
 
-// === AI 文档提取相关方法 ===
-
-// 是否可以执行提取
-const canExtract = computed(() => {
-  if (extractMode.value === 'file') {
-    return uploadFileList.value.length > 0
-  } else if (extractMode.value === 'image') {
-    return !!imageFile.value
-  } else {
-    return extractUrl.value.trim().length > 0
-  }
-})
-
-// 文件数量超限处理
-const handleExceed = () => {
-  ElMessage.warning('只能上传一个文件，请先移除已选文件')
-}
-
-// 文件变化处理
-const handleFileChange = (file) => {
-  // 验证文件大小
-  if (file.size > 10 * 1024 * 1024) {
-    ElMessage.error('文件大小不能超过 10MB')
-    uploadFileList.value = []
-    return
-  }
-  // 验证文件类型
-  const allowedExts = ['.pdf', '.docx', '.doc', '.txt', '.md']
-  const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
-  if (!allowedExts.includes(ext)) {
-    ElMessage.error('不支持的文件格式，请上传 PDF、Word、TXT 或 Markdown 文件')
-    uploadFileList.value = []
-    return
-  }
-}
-
-// 执行 AI 提取
-const handleExtract = async () => {
-  if (!projectId.value) return
-
-  extracting.value = true
-  extractSuccess.value = false
-
-  try {
-    const formData = new FormData()
-
-    if (extractMode.value === 'file') {
-      if (uploadFileList.value.length === 0) {
-        ElMessage.warning('请先选择要上传的文档文件')
-        extracting.value = false
-        return
-      }
-      formData.append('file', uploadFileList.value[0].raw)
-    } else if (extractMode.value === 'image') {
-      if (!imageFile.value) {
-        ElMessage.warning('请先上传或粘贴需求截图')
-        extracting.value = false
-        return
-      }
-      formData.append('image', imageFile.value)
-    } else {
-      if (!extractUrl.value.trim()) {
-        ElMessage.warning('请输入文档链接地址')
-        extracting.value = false
-        return
-      }
-      formData.append('url', extractUrl.value.trim())
-    }
-
-    const response = await extractRequirementFromDocument(projectId.value, formData)
-
-    if (response.data && response.data.success) {
-      const extractedData = response.data.data
-
-      // 将提取的数据填充到表单
-      if (extractedData.title) {
-        createForm.title = extractedData.title
-      }
-      if (extractedData.description) {
-        createForm.description = extractedData.description
-      }
-      if (extractedData.priority && [1, 2, 3].includes(extractedData.priority)) {
-        createForm.priority = extractedData.priority
-      }
-
-      extractSuccess.value = true
-      ElMessage.success('AI 需求信息提取成功，已自动填充到表单中')
-    } else {
-      ElMessage.error(response.data?.message || 'AI 提取失败，请稍后重试')
-    }
-  } catch (error) {
-    console.error('AI 提取失败:', error)
-    const errorMsg = error.response?.data?.detail || error.message || 'AI 提取失败，请稍后重试'
-    ElMessage.error(errorMsg)
-  } finally {
-    extracting.value = false
-  }
-}
-
-// === 图像识别相关方法 ===
-
-// 触发文件选择
-const triggerImageSelect = () => {
-  imageInputRef.value?.click()
-}
-
-// 处理文件选择
-const handleImageSelect = (event) => {
-  const file = event.target.files[0]
-  if (file) {
-    processImageFile(file)
-  }
-  // 清空 input，允许重复选择同一文件
-  event.target.value = ''
-}
-
-// 处理粘贴图片
-const handleImagePaste = (event) => {
-  const items = event.clipboardData?.items
-  if (!items) return
-  
-  for (const item of items) {
-    if (item.type.startsWith('image/')) {
-      event.preventDefault()
-      const file = item.getAsFile()
-      if (file) {
-        processImageFile(file)
-      }
-      return
-    }
-  }
-}
-
-// 处理拖放图片
-const handleImageDrop = (event) => {
-  imageDragOver.value = false
-  const files = event.dataTransfer?.files
-  if (files && files.length > 0) {
-    const file = files[0]
-    if (file.type.startsWith('image/')) {
-      processImageFile(file)
-    } else {
-      ElMessage.warning('请拖入图片文件')
-    }
-  }
-}
-
-// 处理图片文件
-const processImageFile = (file) => {
-  // 验证文件类型
-  const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp']
-  if (!allowedTypes.includes(file.type)) {
-    ElMessage.error('不支持的图片格式，请上传 PNG、JPG、JPEG 或 WebP 格式')
-    return
-  }
-  // 验证大小
-  if (file.size > 10 * 1024 * 1024) {
-    ElMessage.error('图片大小不能超过 10MB')
-    return
-  }
-  
-  imageFile.value = file
-  
-  // 生成预览
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    imagePreviewUrl.value = e.target.result
-  }
-  reader.readAsDataURL(file)
-}
-
-// 移除图片
-const removeImage = () => {
-  imageFile.value = null
-  imagePreviewUrl.value = ''
-}
-
 const handleCancel = async () => {
-  // 检查是否有未保存的内容
   const hasContent = createForm.title.trim() || createForm.description.trim()
-  
   if (hasContent) {
     try {
-      await ElMessageBox.confirm(
-        '您有未保存的内容，确定要离开吗？',
-        '确认离开',
-        {
-          confirmButtonText: '确定离开',
-          cancelButtonText: '继续编辑',
-          type: 'warning'
-        }
-      )
-    } catch {
-      return
-    }
+      await ElMessageBox.confirm('您有未保存的内容，确定要离开吗？', '确认离开', {
+        confirmButtonText: '确定离开',
+        cancelButtonText: '继续编辑',
+        type: 'warning'
+      })
+    } catch { return }
   }
-  
   router.push('/function-test/requirement')
 }
 
-// 生命周期
 onMounted(async () => {
   await loadModules()
 })
@@ -782,7 +790,6 @@ onMounted(async () => {
   margin-bottom: 24px;
 }
 
-/* AI 提取区域样式 */
 .ai-extract-section {
   margin-bottom: 24px;
 }
@@ -798,182 +805,263 @@ onMounted(async () => {
   gap: 20px;
 }
 
-.extract-mode-selector {
-  align-self: flex-start;
+/* ====== 统一输入区域 ====== */
+.unified-input-area {
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.3s;
+  background: #fff;
 }
 
-.extract-mode-selector .el-radio-button__inner {
+.unified-input-area.is-focused {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.08);
+}
+
+.unified-input-area.drag-over {
+  border-color: #8b5cf6;
+  border-style: dashed;
+  background: #faf5ff;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+
+.input-textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: vertical;
+  padding: 16px 18px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #1f2937;
+  background: transparent;
+  font-family: inherit;
+  min-height: 120px;
+  box-sizing: border-box;
+}
+
+.input-textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* 附件区域 */
+.attachments-area {
+  border-top: 1px solid #f3f4f6;
+  padding: 12px 16px;
+  background: #fafbfc;
+}
+
+.attachments-title {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.extract-input-area {
-  width: 100%;
-}
-
-.doc-upload {
-  width: 100%;
-}
-
-.doc-upload :deep(.el-upload-dragger) {
-  width: 100%;
-  padding: 40px 20px;
-  border: 2px dashed #d9d9d9;
-  border-radius: 8px;
-  transition: border-color 0.3s;
-}
-
-.doc-upload :deep(.el-upload-dragger:hover) {
-  border-color: #8b5cf6;
-}
-
-.doc-upload :deep(.el-upload) {
-  width: 100%;
-}
-
-.upload-content {
-  text-align: center;
-}
-
-.upload-content .el-icon--upload {
-  font-size: 48px;
-  color: #8b5cf6;
-  margin-bottom: 12px;
-}
-
-.upload-content .el-upload__text {
-  color: #606266;
-  font-size: 14px;
-  margin-bottom: 8px;
-}
-
-.upload-content .el-upload__text em {
-  color: #8b5cf6;
-  font-style: normal;
-}
-
-.upload-content .el-upload__tip {
-  color: #909399;
   font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 10px;
 }
 
-/* 图像识别区域 */
-.image-drop-zone {
-  width: 100%;
-  min-height: 200px;
-  border: 2px dashed #d9d9d9;
+.attachments-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.3s;
-  outline: none;
+  min-width: 180px;
+  max-width: 280px;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.attachment-item:hover {
+  border-color: #8b5cf6;
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.1);
+}
+
+.att-preview {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
-  overflow: hidden;
+  flex-shrink: 0;
 }
 
-.image-drop-zone:hover,
-.image-drop-zone:focus {
-  border-color: #8b5cf6;
-  background: #faf5ff;
+.image-preview-thumb {
+  background: #f3f4f6;
 }
 
-.image-drop-zone.drag-over {
-  border-color: #8b5cf6;
-  background: #f3e8ff;
-  border-width: 3px;
-}
-
-.image-drop-zone.has-image {
-  border-style: solid;
-  border-color: #8b5cf6;
-  padding: 8px;
-  min-height: auto;
-}
-
-.image-preview-container {
-  position: relative;
+.image-preview-thumb img {
   width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.video-preview-thumb {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+}
+
+.doc-preview-thumb {
+  background: linear-gradient(135deg, #f093fb, #f5576c);
+  color: #fff;
+}
+
+.file-type-icon {
+  font-size: 20px;
+}
+
+.att-info {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.image-preview {
-  max-width: 100%;
-  max-height: 500px;
-  object-fit: contain;
-  border-radius: 4px;
+.att-name {
+  font-size: 13px;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.image-actions {
+.att-size {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.att-remove {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: -6px;
+  right: -6px;
+  width: 20px !important;
+  height: 20px !important;
+  padding: 0 !important;
+}
+
+/* URL 输入 */
+.url-input-row {
+  border-top: 1px solid #f3f4f6;
+  padding: 10px 16px;
+  background: #fafbfc;
+}
+
+/* 底部工具栏 */
+.input-toolbar {
   display: flex;
-  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid #f3f4f6;
+  padding: 8px 12px;
+  background: #fafbfc;
 }
 
-.image-upload-placeholder {
-  text-align: center;
-  padding: 40px 20px;
+.toolbar-left {
+  display: flex;
+  gap: 4px;
 }
 
-.image-upload-placeholder .upload-icon {
-  font-size: 56px;
+.toolbar-btn {
+  font-size: 13px;
+  color: #6b7280;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.toolbar-btn:hover {
   color: #8b5cf6;
-  margin-bottom: 16px;
+  background: #f3e8ff;
 }
 
-.image-upload-placeholder .upload-main-text {
-  color: #606266;
-  font-size: 14px;
-  margin-bottom: 8px;
+.toolbar-btn .el-icon {
+  margin-right: 4px;
 }
 
-.image-upload-placeholder .upload-main-text em {
-  color: #8b5cf6;
-  font-style: normal;
-  cursor: pointer;
+.toolbar-right {
+  display: flex;
+  align-items: center;
 }
 
-.image-upload-placeholder .upload-main-text em:hover {
-  text-decoration: underline;
-}
-
-.image-upload-placeholder .upload-main-text strong {
-  color: #8b5cf6;
-}
-
-.image-upload-placeholder .upload-sub-text {
-  color: #909399;
+.input-hint {
   font-size: 12px;
+  color: #9ca3af;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
+/* 提取按钮 */
 .extract-actions {
   display: flex;
   align-items: center;
   gap: 16px;
 }
 
-.extract-tip {
+/* 流式进度 */
+.stream-progress-area {
+  background: #faf5ff;
+  border: 1px solid #e9d5ff;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.progress-bar-container {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.progress-bar-container .el-progress {
+  flex: 1;
+}
+
+.progress-text {
+  font-size: 13px;
   color: #8b5cf6;
-  font-size: 14px;
+  white-space: nowrap;
+  min-width: 120px;
 }
 
-.extract-tip .is-loading {
-  animation: rotate 1.5s linear infinite;
+.stream-content {
+  max-height: 200px;
+  overflow-y: auto;
 }
 
-@keyframes rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.stream-label {
+  font-size: 12px;
+  color: #8b5cf6;
+  font-weight: 600;
+  margin-bottom: 6px;
 }
 
+.stream-text {
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: #fff;
+  padding: 10px;
+  border-radius: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+/* 其余样式 */
 .header-content {
   display: flex;
   justify-content: space-between;
@@ -984,14 +1072,8 @@ onMounted(async () => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.breadcrumb-section {
-  flex: 1;
-}
-
-.action-section {
-  display: flex;
-  gap: 12px;
-}
+.breadcrumb-section { flex: 1; }
+.action-section { display: flex; gap: 12px; }
 
 .page-content {
   background: white;
@@ -1017,9 +1099,7 @@ onMounted(async () => {
   font-size: 14px;
 }
 
-.form-section {
-  margin-bottom: 32px;
-}
+.form-section { margin-bottom: 32px; }
 
 .section-title {
   color: #1f2937;
@@ -1036,9 +1116,7 @@ onMounted(async () => {
   gap: 24px;
 }
 
-.title-item {
-  grid-column: 1 / -1;
-}
+.title-item { grid-column: 1 / -1; }
 
 .module-option,
 .priority-option,
@@ -1049,9 +1127,7 @@ onMounted(async () => {
   width: 100%;
 }
 
-.module-name {
-  font-weight: 500;
-}
+.module-name { font-weight: 500; }
 
 .module-desc,
 .priority-desc,
@@ -1069,62 +1145,21 @@ onMounted(async () => {
   border-top: 1px solid #e5e7eb;
 }
 
-/* 响应式设计 */
 @media (max-width: 1024px) {
-  .form-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-  
-  .title-item {
-    grid-column: 1 / -1;
-  }
+  .form-grid { grid-template-columns: 1fr 1fr; }
+  .title-item { grid-column: 1 / -1; }
 }
 
 @media (max-width: 768px) {
-  .requirement-create-page {
-    padding: 16px;
-  }
-  
-  .header-content {
-    flex-direction: column;
-    gap: 16px;
-    align-items: stretch;
-  }
-  
-  .form-grid {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-  
-  .form-actions {
-    flex-direction: column-reverse;
-  }
-  
-  .module-option,
-  .priority-option,
-  .status-option {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-  }
+  .requirement-create-page { padding: 16px; }
+  .header-content { flex-direction: column; gap: 16px; align-items: stretch; }
+  .form-grid { grid-template-columns: 1fr; gap: 16px; }
+  .form-actions { flex-direction: column-reverse; }
+  .input-toolbar { flex-direction: column; gap: 8px; }
 }
 
-/* Element Plus 样式覆盖 */
-:deep(.el-textarea__inner) {
-  font-family: inherit;
-  line-height: 1.6;
-}
-
-:deep(.el-form-item__label) {
-  font-weight: 500;
-  color: #374151;
-}
-
-:deep(.el-input__inner) {
-  border-radius: 6px;
-}
-
-:deep(.el-select .el-input__inner) {
-  border-radius: 6px;
-}
+:deep(.el-textarea__inner) { font-family: inherit; line-height: 1.6; }
+:deep(.el-form-item__label) { font-weight: 500; color: #374151; }
+:deep(.el-input__inner) { border-radius: 6px; }
+:deep(.el-select .el-input__inner) { border-radius: 6px; }
 </style>

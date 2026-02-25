@@ -304,7 +304,7 @@ export const exportCasesAsXmind = (projectId, requirementId, templateSettings = 
 }
 
 /**
- * 从文档中AI提取需求信息
+ * 从文档中AI提取需求信息（旧接口，保留兼容）
  * @param {number} projectId - 项目ID
  * @param {FormData} formData - 包含 file（文件）或 url（链接）
  * @returns {Promise} 返回提取的需求信息 { title, description, priority, raw_text }
@@ -319,6 +319,24 @@ export const extractRequirementFromDocument = (projectId, formData) => {
       'Content-Type': 'multipart/form-data'
     },
     timeout: 120000
+  })
+}
+
+/**
+ * 流式混合提取需求信息（文本+图片+文档+视频+链接）
+ * @param {number} projectId - 项目ID
+ * @param {FormData} formData - 包含 text, files[], url
+ * @returns {Promise<Response>} fetch Response (SSE stream)
+ */
+export const extractRequirementStream = (projectId, formData) => {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token')
+  return fetch(`${baseURL}/functional_test/extract_requirement_stream?project_id=${projectId}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    },
+    body: formData
   })
 }
 
