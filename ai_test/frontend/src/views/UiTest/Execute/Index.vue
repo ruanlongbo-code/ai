@@ -28,7 +28,12 @@
     <div class="main-area" v-loading="caseLoading">
       <!-- 左侧：测试步骤 -->
       <div class="steps-panel">
-        <div class="panel-header">测试步骤 ({{ steps.length }})</div>
+        <div class="panel-header">
+          <span>测试步骤 ({{ steps.length }})</span>
+          <el-tag v-if="executing" type="warning" size="small" effect="plain" class="vision-badge">
+            <el-icon style="margin-right: 2px;"><View /></el-icon> AI视觉分析中
+          </el-tag>
+        </div>
         <div class="steps-scroll">
           <div
             v-for="(step, idx) in steps"
@@ -51,21 +56,66 @@
                 <el-icon v-else-if="step._status === 'failed'" style="color:#f56c6c;font-size:18px;"><CircleCloseFilled /></el-icon>
               </div>
             </div>
+
+            <!-- AI 决策信息 -->
+            <div v-if="step._ai_description" class="step-ai-info">
+              <el-icon style="color:#8b5cf6;font-size:12px;margin-right:4px;"><MagicStick /></el-icon>
+              <span class="ai-label">AI视觉分析:</span>
+              <span class="ai-desc">{{ step._ai_description }}</span>
+            </div>
+
+            <!-- 断言结果 -->
+            <div v-if="step._assertion_type" class="step-assertion-info">
+              <el-icon :style="{color: step._assertion_passed ? '#67c23a' : '#f56c6c', fontSize: '12px'}">
+                <component :is="step._assertion_passed ? 'SuccessFilled' : 'CircleCloseFilled'" />
+              </el-icon>
+              <span class="assertion-type-label">{{ assertionLabel(step._assertion_type) }}</span>
+              <span class="assertion-detail-text" :class="{ passed: step._assertion_passed, failed: !step._assertion_passed }">{{ step._assertion_detail }}</span>
+            </div>
+
+            <!-- 结果区域 -->
             <div v-if="step._actual_result || step._error" class="step-result-area">
               <div v-if="step._actual_result" class="step-result" :class="{ failed: step._status === 'failed' }">
                 {{ step._actual_result }}
               </div>
               <div v-if="step._error" class="step-error">{{ step._error }}</div>
-              <div v-if="step._duration" class="step-time">{{ step._duration }}ms</div>
+              <div v-if="step._duration" class="step-time">⏱ {{ step._duration }}ms</div>
+            </div>
+
+            <!-- 步骤截图缩略图 -->
+            <div v-if="step._screenshot_url" class="step-screenshot">
+              <el-image
+                :src="getFullUrl(step._screenshot_url)"
+                :preview-src-list="[getFullUrl(step._screenshot_url)]"
+                fit="cover"
+                class="step-screenshot-img"
+              >
+                <template #placeholder>
+                  <div class="screenshot-placeholder">
+                    <el-icon><Picture /></el-icon>
+                  </div>
+                </template>
+              </el-image>
+              <span class="screenshot-label">执行截图</span>
             </div>
           </div>
         </div>
 
         <!-- 执行结果摘要 -->
         <div v-if="executionDone" class="summary-bar" :class="finalStatus">
-          <el-icon v-if="finalStatus === 'passed'"><SuccessFilled /></el-icon>
-          <el-icon v-else><CircleCloseFilled /></el-icon>
-          <span>{{ passedCount }} 通过 / {{ failedCount }} 失败</span>
+          <div class="summary-left">
+            <el-icon v-if="finalStatus === 'passed'"><SuccessFilled /></el-icon>
+            <el-icon v-else><CircleCloseFilled /></el-icon>
+            <span>{{ passedCount }} 通过 / {{ failedCount }} 失败</span>
+          </div>
+          <el-button
+            v-if="executionId || currentExecutionId"
+            type="primary"
+            size="small"
+            @click="goReport"
+          >
+            <el-icon><Document /></el-icon> 查看报告
+          </el-button>
         </div>
       </div>
 
@@ -84,7 +134,10 @@
               <span class="url-text">{{ currentUrl || '等待启动...' }}</span>
             </div>
             <div class="toolbar-actions">
-              <el-icon v-if="executing" class="is-loading" style="color:#e6a23c;"><Loading /></el-icon>
+              <el-tooltip v-if="executing" content="AI正在视觉分析页面截图进行操作决策" placement="bottom">
+                <el-icon class="is-loading" style="color:#8b5cf6;"><MagicStick /></el-icon>
+              </el-tooltip>
+              <el-icon v-if="executing" class="is-loading" style="color:#e6a23c;margin-left:6px;"><Loading /></el-icon>
             </div>
           </div>
 
@@ -102,9 +155,22 @@
             <div v-if="!hasFrame" class="browser-overlay">
               <div class="overlay-content">
                 <el-icon style="font-size:56px;color:rgba(139,92,246,0.4);"><Monitor /></el-icon>
-                <p class="overlay-title">AI 内嵌浏览器</p>
-                <p class="overlay-desc">点击「开始 AI 执行」，AI 将自动操作浏览器执行测试步骤</p>
-                <p class="overlay-desc">执行过程中可实时观看浏览器操作画面</p>
+                <p class="overlay-title">AI 视觉驱动浏览器</p>
+                <p class="overlay-desc">点击「开始 AI 执行」，AI 将通过视觉分析页面截图自动执行测试步骤</p>
+                <div class="overlay-features">
+                  <div class="feature-item">
+                    <el-icon><View /></el-icon>
+                    <span>截图视觉分析</span>
+                  </div>
+                  <div class="feature-item">
+                    <el-icon><MagicStick /></el-icon>
+                    <span>AI智能决策</span>
+                  </div>
+                  <div class="feature-item">
+                    <el-icon><Camera /></el-icon>
+                    <span>每步截图记录</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -121,6 +187,7 @@
           <div class="log-scroll" ref="logRef">
             <div v-for="(log, idx) in logs" :key="idx" class="log-line" :class="log.level">
               <span class="log-ts">{{ log.time }}</span>
+              <span v-if="log.level === 'ai'" class="log-ai-badge">AI</span>
               <span class="log-text">{{ log.message }}</span>
             </div>
             <div v-if="logs.length === 0" class="log-empty">等待执行...</div>
@@ -142,7 +209,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Loading, SuccessFilled, CircleCloseFilled } from '@element-plus/icons-vue'
+import { Loading, SuccessFilled, CircleCloseFilled, View, MagicStick, Camera, Picture, Document } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/stores'
 import { getUiCaseDetail } from '@/api/uiTest'
 
@@ -167,6 +234,8 @@ const failedCount = ref(0)
 const currentUrl = ref('')
 const hasFrame = ref(false)
 const execStatus = ref('')
+const executionId = ref(null)
+const currentExecutionId = ref(null)
 const logs = ref([])
 
 const canvasRef = ref(null)
@@ -187,6 +256,12 @@ const execStatusText = computed(() => {
   return m[execStatus.value] || execStatus.value
 })
 const priorityType = (p) => ({ P0: 'danger', P1: 'warning', P2: '', P3: 'info' })[p] || ''
+
+const getFullUrl = (path) => {
+  if (!path) return ''
+  if (path.startsWith('http')) return path
+  return `${API_BASE}${path}`
+}
 
 const addLog = (message, level = 'info') => {
   const now = new Date()
@@ -224,6 +299,12 @@ const fetchCaseDetail = async () => {
       _actual_result: null,
       _error: null,
       _duration: null,
+      _screenshot_url: null,
+      _ai_description: null,
+      _ai_action: null,
+      _assertion_type: null,
+      _assertion_passed: null,
+      _assertion_detail: null,
     }))
   } catch (e) {
     ElMessage.error('获取用例详情失败')
@@ -247,7 +328,15 @@ const startExecution = () => {
     s._actual_result = null
     s._error = null
     s._duration = null
+    s._screenshot_url = null
+    s._ai_description = null
+    s._ai_action = null
+    s._assertion_type = null
+    s._assertion_passed = null
+    s._assertion_detail = null
   })
+  executionId.value = null
+  currentExecutionId.value = null
 
   initCanvas()
   if (canvasCtx) canvasCtx.clearRect(0, 0, 1280, 720)
@@ -262,7 +351,7 @@ const startExecution = () => {
   ws.onopen = () => {
     connecting.value = false
     executing.value = true
-    addLog('连接成功，AI 浏览器启动中...')
+    addLog('连接成功，AI 视觉浏览器启动中...')
   }
 
   ws.onmessage = (event) => {
@@ -302,6 +391,7 @@ const handleMessage = (data) => {
 
   if (type === 'execution_start') {
     currentUrl.value = data.page_url || ''
+    currentExecutionId.value = data.execution_id || null
     addLog(`开始执行，共 ${data.total_steps} 个步骤`)
   } else if (type === 'page_loaded') {
     currentUrl.value = data.url || ''
@@ -313,7 +403,17 @@ const handleMessage = (data) => {
       addLog(`步骤 ${data.sort_order + 1}: ${data.action}`)
     }
   } else if (type === 'ai_thinking') {
-    addLog(`AI 决策: ${data.action}`, 'info')
+    const step = steps.value.find(s => s.id === data.step_id)
+    if (step) {
+      step._ai_description = data.description || ''
+      try {
+        step._ai_action = data.action ? JSON.parse(data.action) : null
+      } catch (e) {
+        step._ai_action = null
+      }
+    }
+    const desc = data.description || ''
+    addLog(`🔍 AI视觉分析: ${desc || data.action}`, 'ai')
   } else if (type === 'step_done') {
     const step = steps.value.find(s => s.id === data.step_id)
     if (step) {
@@ -321,6 +421,13 @@ const handleMessage = (data) => {
       step._actual_result = data.actual_result
       step._error = data.error_message
       step._duration = data.duration_ms
+      step._assertion_type = data.assertion_type || null
+      step._assertion_passed = data.assertion_passed
+      step._assertion_detail = data.assertion_detail || null
+      // 设置步骤截图
+      if (data.screenshot) {
+        step._screenshot_url = `/screenshots/${data.screenshot}`
+      }
     }
     if (data.status === 'passed') {
       passedCount.value++
@@ -329,11 +436,17 @@ const handleMessage = (data) => {
       failedCount.value++
       addLog(`  ✗ 失败 — ${data.error_message || data.actual_result || ''}`, 'error')
     }
+    // 断言日志
+    if (data.assertion_type) {
+      const icon = data.assertion_passed ? '✅' : '❌'
+      addLog(`  ${icon} 断言[${data.assertion_type}]: ${data.assertion_detail || '-'}`, data.assertion_passed ? 'success' : 'error')
+    }
   } else if (type === 'done') {
     executionDone.value = true
     executing.value = false
     finalStatus.value = data.status
     execStatus.value = data.status
+    executionId.value = data.execution_id || currentExecutionId.value
     addLog(`执行完成: ${data.passed} 通过, ${data.failed} 失败`, data.status === 'passed' ? 'success' : 'error')
   } else if (type === 'error') {
     addLog(`错误: ${data.message}`, 'error')
@@ -346,6 +459,22 @@ const handleCanvasClick = () => {
   const dataUrl = canvasRef.value.toDataURL('image/png')
   previewList.value = [dataUrl]
   previewVisible.value = true
+}
+
+const assertionLabel = (type) => {
+  const m = {
+    url_contains: 'URL包含', url_equals: 'URL等于',
+    title_contains: '标题包含', title_equals: '标题等于',
+    element_visible: '元素可见', element_hidden: '元素隐藏',
+    element_text_contains: '元素文本包含', element_text_equals: '元素文本等于',
+    element_exists: '元素存在', page_contains: '页面包含', toast_contains: '提示消息',
+  }
+  return m[type] || type
+}
+
+const goReport = () => {
+  const eid = executionId.value || currentExecutionId.value
+  if (eid) router.push(`/ui-test/report/${eid}`)
 }
 
 const goBack = () => router.push('/ui-test/case')
@@ -379,18 +508,26 @@ onUnmounted(() => {
 
 /* ============ 左侧步骤面板 ============ */
 .steps-panel {
-  width: 300px; flex-shrink: 0; display: flex; flex-direction: column;
+  width: 340px; flex-shrink: 0; display: flex; flex-direction: column;
   background: #fff; border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.06); overflow: hidden;
 }
 .panel-header {
   padding: 10px 14px; font-weight: 600; font-size: 13px; color: #303133;
   border-bottom: 1px solid #f0f0f0; background: #fafafa;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.vision-badge {
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 .steps-scroll { flex: 1; overflow-y: auto; padding: 8px; }
 
 .step-card {
-  padding: 8px 10px; margin-bottom: 6px; border-radius: 6px;
-  border: 1px solid #ebeef5; transition: all .15s;
+  padding: 10px 12px; margin-bottom: 8px; border-radius: 8px;
+  border: 1px solid #ebeef5; transition: all .2s;
 }
 .step-card.running { border-color: #e6a23c; background: #fdf6ec; }
 .step-card.passed { border-color: #b3e19d; background: #f0f9eb; }
@@ -398,7 +535,7 @@ onUnmounted(() => {
 
 .step-top { display: flex; align-items: flex-start; gap: 8px; }
 .step-badge {
-  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 700; color: #fff; background: #c0c4cc;
 }
@@ -410,18 +547,59 @@ onUnmounted(() => {
 .step-action-text { font-size: 13px; color: #303133; line-height: 1.4; word-break: break-all; }
 .step-sub { font-size: 11px; color: #909399; margin-top: 2px; }
 
+/* AI决策信息 */
+.step-ai-info {
+  margin-top: 6px; padding: 5px 8px; border-radius: 4px;
+  background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+  display: flex; align-items: flex-start; font-size: 11px;
+  border: 1px solid #ddd6fe;
+}
+.ai-label { color: #7c3aed; font-weight: 600; margin-right: 4px; white-space: nowrap; }
+.ai-desc { color: #6d28d9; line-height: 1.4; word-break: break-all; }
+
 .step-result-area { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #ebeef5; }
-.step-result { font-size: 11px; color: #67c23a; }
+.step-result { font-size: 11px; color: #67c23a; line-height: 1.4; word-break: break-all; }
 .step-result.failed { color: #f56c6c; }
-.step-error { font-size: 11px; color: #f56c6c; }
-.step-time { font-size: 10px; color: #c0c4cc; margin-top: 2px; }
+.step-error { font-size: 11px; color: #f56c6c; line-height: 1.4; word-break: break-all; }
+.step-time { font-size: 10px; color: #c0c4cc; margin-top: 3px; }
+
+/* 步骤截图缩略图 */
+.step-screenshot {
+  margin-top: 6px; display: flex; align-items: center; gap: 6px;
+}
+.step-screenshot-img {
+  width: 100px; height: 56px; border-radius: 4px; cursor: pointer;
+  border: 1px solid #e0e0e0; overflow: hidden;
+  transition: transform .2s, box-shadow .2s;
+}
+.step-screenshot-img:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.screenshot-placeholder {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  background: #f5f7fa; color: #c0c4cc;
+}
+.screenshot-label { font-size: 10px; color: #909399; }
 
 .summary-bar {
-  padding: 10px 14px; display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; display: flex; align-items: center; justify-content: space-between;
   font-weight: 600; font-size: 13px;
 }
+.summary-left { display: flex; align-items: center; gap: 8px; }
 .summary-bar.passed { background: #f0f9eb; color: #67c23a; }
 .summary-bar.failed { background: #fef0f0; color: #f56c6c; }
+
+/* 断言信息 */
+.step-assertion-info {
+  margin-top: 6px; padding: 4px 8px; border-radius: 4px;
+  display: flex; align-items: flex-start; gap: 4px; font-size: 11px;
+  background: #f8fafc; border: 1px solid #e2e8f0;
+}
+.assertion-type-label { color: #475569; font-weight: 600; white-space: nowrap; }
+.assertion-detail-text { line-height: 1.4; word-break: break-all; }
+.assertion-detail-text.passed { color: #67c23a; }
+.assertion-detail-text.failed { color: #f56c6c; }
 
 /* ============ 右侧浏览器面板 ============ */
 .browser-panel { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -454,7 +632,7 @@ onUnmounted(() => {
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
 .url-text { overflow: hidden; text-overflow: ellipsis; }
-.toolbar-actions { width: 24px; }
+.toolbar-actions { display: flex; align-items: center; }
 
 .browser-content {
   flex: 1; position: relative; background: #f5f5f5; overflow: hidden;
@@ -468,11 +646,22 @@ onUnmounted(() => {
 }
 .overlay-content { text-align: center; }
 .overlay-title { font-size: 18px; font-weight: 600; color: #303133; margin: 12px 0 4px; }
-.overlay-desc { font-size: 13px; color: #909399; margin: 2px 0; }
+.overlay-desc { font-size: 13px; color: #909399; margin: 2px 0 16px; }
+
+.overlay-features {
+  display: flex; gap: 20px; justify-content: center;
+}
+.feature-item {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font-size: 12px; color: #606266;
+}
+.feature-item .el-icon {
+  font-size: 22px; color: #8b5cf6;
+}
 
 /* ============ 日志栏 ============ */
 .log-bar {
-  height: 130px; background: #1a1a2e; border-radius: 8px; overflow: hidden;
+  height: 140px; background: #1a1a2e; border-radius: 8px; overflow: hidden;
   display: flex; flex-direction: column;
 }
 .log-header {
@@ -483,11 +672,17 @@ onUnmounted(() => {
   flex: 1; overflow-y: auto; padding: 6px 12px;
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace; font-size: 12px;
 }
-.log-line { padding: 1px 0; display: flex; gap: 10px; }
+.log-line { padding: 1px 0; display: flex; gap: 10px; align-items: flex-start; }
 .log-ts { color: #4a5568; flex-shrink: 0; }
-.log-text { color: #e2e8f0; }
+.log-text { color: #e2e8f0; word-break: break-all; }
 .log-line.success .log-text { color: #68d391; }
 .log-line.error .log-text { color: #fc8181; }
+.log-line.ai .log-text { color: #b794f4; }
+.log-ai-badge {
+  flex-shrink: 0; font-size: 10px; font-weight: 700; color: #fff;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  padding: 0 5px; border-radius: 3px; line-height: 16px;
+}
 .log-empty { color: #4a5568; font-style: italic; }
 
 .log-scroll::-webkit-scrollbar { width: 4px; }

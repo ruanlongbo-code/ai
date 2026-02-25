@@ -1437,3 +1437,158 @@ async def export_cases_as_xmind(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"导出XMind文件失败: {str(e)}"
         )
+
+
+# ==================== AI 优化需求 ====================
+
+@router.post("/{project_id}/requirements/{requirement_id}/ai_optimize", summary="AI优化需求")
+async def ai_optimize_requirement(
+        project_id: int,
+        requirement_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    使用AI优化需求的标题和描述，使其更清晰、完整、可测试。
+    返回SSE流式输出优化结果。
+    """
+    project, current_user = project_user
+
+    try:
+        requirement = await RequirementDoc.get_or_none(id=requirement_id)
+        if not requirement:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="需求不存在")
+
+        module = await ProjectModule.get_or_none(id=requirement.module_id)
+        if not module or module.project_id != project_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="需求不属于该项目")
+
+        from config.settings import llm
+
+        prompt = f"""你是一位资深的软件需求分析师和测试专家。请对以下需求进行全面优化，使其更加清晰、完整、可测试。
+
+## 原始需求信息
+- **标题**: {requirement.title}
+- **描述**: {requirement.description or '无描述'}
+- **优先级**: {requirement.priority}
+- **所属模块**: {module.name if module else '未分类'}
+
+## 优化要求
+请从以下几个维度优化该需求：
+
+1. **标题优化**: 使标题更准确、简洁、易于理解
+2. **描述优化**: 补充和完善需求描述，包括：
+   - 功能概述（用1-2句话概括核心功能）
+   - 用户场景（描述用户在什么场景下使用该功能）
+   - 功能细节（列出具体的功能点）
+   - 输入输出（明确输入条件和预期输出）
+   - 边界条件（列出需要注意的边界情况）
+   - 非功能性要求（如性能、安全性等，如适用）
+3. **验收标准**: 列出明确的验收标准，方便测试人员编写用例
+4. **潜在风险**: 指出可能存在的技术风险或业务风险
+
+## 输出格式
+请严格按以下JSON格式输出（不要包含markdown代码块标记）：
+{{
+    "optimized_title": "优化后的标题",
+    "optimized_description": "优化后的完整描述（使用markdown格式）",
+    "acceptance_criteria": ["验收标准1", "验收标准2", "..."],
+    "risks": ["风险点1", "风险点2"],
+    "optimization_summary": "优化说明（简要说明做了哪些优化）"
+}}"""
+
+        async def generate():
+            try:
+                full_content = ""
+                async for chunk in llm.astream(prompt):
+                    if chunk.content:
+                        full_content += chunk.content
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk.content}, ensure_ascii=False)}\n\n"
+
+                # 尝试解析完整的JSON结果
+                try:
+                    # 清理可能的markdown代码块标记
+                    clean_content = full_content.strip()
+                    if clean_content.startswith("```json"):
+                        clean_content = clean_content[7:]
+                    if clean_content.startswith("```"):
+                        clean_content = clean_content[3:]
+                    if clean_content.endswith("```"):
+                        clean_content = clean_content[:-3]
+                    clean_content = clean_content.strip()
+
+                    result = json.loads(clean_content)
+                    yield f"data: {json.dumps({'type': 'result', 'data': result}, ensure_ascii=False)}\n\n"
+                except json.JSONDecodeError:
+                    yield f"data: {json.dumps({'type': 'result', 'data': {'raw': full_content}}, ensure_ascii=False)}\n\n"
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            except Exception as e:
+                logger.error(f"AI优化需求流式输出失败: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"AI优化需求失败: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI优化需求失败: {str(e)}"
+        )
+
+
+@router.put("/{project_id}/requirements/{requirement_id}/apply_optimization", summary="应用AI优化结果")
+async def apply_ai_optimization(
+        project_id: int,
+        requirement_id: int,
+        optimization_data: dict,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """将AI优化的结果应用到需求上"""
+    project, current_user = project_user
+
+    try:
+        requirement = await RequirementDoc.get_or_none(id=requirement_id)
+        if not requirement:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="需求不存在")
+
+        module = await ProjectModule.get_or_none(id=requirement.module_id)
+        if not module or module.project_id != project_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="需求不属于该项目")
+
+        # 更新需求
+        if "optimized_title" in optimization_data:
+            requirement.title = optimization_data["optimized_title"]
+        if "optimized_description" in optimization_data:
+            # 合并验收标准和风险到描述中
+            desc = optimization_data["optimized_description"]
+            if optimization_data.get("acceptance_criteria"):
+                desc += "\n\n## 验收标准\n"
+                for i, criteria in enumerate(optimization_data["acceptance_criteria"], 1):
+                    desc += f"{i}. {criteria}\n"
+            if optimization_data.get("risks"):
+                desc += "\n## 潜在风险\n"
+                for i, risk in enumerate(optimization_data["risks"], 1):
+                    desc += f"{i}. {risk}\n"
+            requirement.description = desc
+
+        await requirement.save()
+
+        return {
+            "message": "AI优化结果已应用",
+            "requirement": {
+                "id": requirement.id,
+                "title": requirement.title,
+                "description": requirement.description,
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"应用AI优化结果失败: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"应用AI优化结果失败: {str(e)}"
+        )

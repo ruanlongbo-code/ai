@@ -31,3 +31,10 @@ llm: ChatOpenAI = ChatOpenAI(
     base_url=os.getenv('BASE_URL'),
     api_key=os.getenv('API_KEY'),
 )
+
+# 视觉模型（用于UI测试截图分析，若未配置则复用对话模型）
+vision_llm: ChatOpenAI = ChatOpenAI(
+    model=os.getenv('VISION_LLM_MODEL', os.getenv('LLM_MODEL')),
+    base_url=os.getenv('VISION_BASE_URL', os.getenv('BASE_URL')),
+    api_key=os.getenv('VISION_API_KEY', os.getenv('API_KEY')),
+)

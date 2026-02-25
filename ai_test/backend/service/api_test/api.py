@@ -1,9 +1,9 @@
 """
 接口测试模块API路由
 """
-from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Query, Request
 from fastapi.responses import StreamingResponse
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import json
 import traceback
 import os
@@ -34,6 +34,8 @@ from .schemas import (
     CiTriggerRequest, CiTriggerResponse, CurlToInterfaceRequest,
     # Phase 3: Webhook
     WebhookConfigCreateRequest, WebhookConfigResponse, WebhookConfigUpdateRequest, WebhookConfigListResponse,
+    # 创建/删除测试用例
+    ApiTestCaseCreateRequest, ApiTestCaseCreateResponse, ApiTestCaseDeleteResponse,
 )
 from .models import ApiInterface, ApiDependencyGroup, ApiDependency, ApiBaseCase, ApiTestCase, \
     QuickDebugHistory, ScheduledTask, WebhookConfig
@@ -1916,6 +1918,114 @@ async def update_test_case(
         )
 
 
+@router.post("/{project_id}/test-cases", response_model=ApiTestCaseCreateResponse, summary="创建接口测试用例")
+async def create_test_case(
+        project_id: int,
+        request: ApiTestCaseCreateRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """
+    手动创建接口测试用例
+
+    业务逻辑：
+    - 自动创建一个关联的 ApiBaseCase（占位）
+    - 创建 ApiTestCase 并关联
+    - 返回创建结果
+    """
+    project, current_user = project_user
+
+    try:
+        # 查找或创建一个默认的接口用于关联 base_case
+        default_interface = await ApiInterface.filter(project_id=project_id).first()
+        if not default_interface:
+            # 如果项目没有接口，创建一个占位接口
+            default_interface = await ApiInterface.create(
+                project_id=project_id,
+                method="GET",
+                path=request.interface_name or "/manual-case",
+                summary=f"手动创建用例 - {request.name}",
+                parameters={},
+                request_body={},
+                responses={},
+            )
+
+        # 自动创建一个关联的 base_case
+        base_case = await ApiBaseCase.create(
+            name=request.name,
+            steps=[{"step": "手动创建用例"}],
+            expected=[{"result": "预期通过"}],
+            status="active",
+            interface_id=default_interface.id,
+        )
+
+        # 创建测试用例
+        test_case = await ApiTestCase.create(
+            name=request.name,
+            description=request.description,
+            interface_name=request.interface_name,
+            type=request.type or "api",
+            preconditions=request.preconditions or [],
+            request=request.request or {},
+            assertions=request.assertions or {"response": []},
+            status=request.status or "ready",
+            generation_count=1,
+            base_case_id=base_case.id,
+        )
+
+        return ApiTestCaseCreateResponse(
+            id=test_case.id,
+            name=test_case.name,
+            description=test_case.description,
+            interface_name=test_case.interface_name,
+            type=test_case.type,
+            status=test_case.status,
+            created_at=test_case.created_at,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"创建测试用例失败: {str(e)}"
+        )
+
+
+@router.delete("/{project_id}/test-cases/{test_case_id}", response_model=ApiTestCaseDeleteResponse,
+               summary="删除接口测试用例")
+async def delete_test_case(
+        project_id: int,
+        test_case_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """删除接口测试用例"""
+    project, current_user = project_user
+
+    try:
+        test_case = await ApiTestCase.get_or_none(id=test_case_id)
+        if not test_case:
+            raise HTTPException(status_code=404, detail="测试用例不存在")
+
+        # 验证用例是否属于该项目（通过base_case -> interface -> project）
+        base_case = await ApiBaseCase.get_or_none(id=test_case.base_case_id)
+        if base_case:
+            interface = await ApiInterface.get_or_none(id=base_case.interface_id, project_id=project_id)
+            if not interface:
+                raise HTTPException(status_code=403, detail="用例不属于该项目")
+
+        await test_case.delete()
+
+        return ApiTestCaseDeleteResponse(message="测试用例删除成功")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"删除测试用例失败: {str(e)}"
+        )
+
+
 @router.put("/{project_id}/base-cases/{base_case_id}", response_model=ApiBaseCaseUpdateResponse,
             summary="编辑接口基础用例")
 async def update_base_case(
@@ -3753,6 +3863,70 @@ async def _send_webhook_notifications(project_id: int, execution):
 
 # ==================== Phase 3: 增强执行报告 ====================
 
+@router.get("/{project_id}/allure-reports", summary="获取Allure风格报告列表")
+async def get_allure_report_list(
+        project_id: int,
+        page: int = Query(1, ge=1),
+        page_size: int = Query(20, ge=1, le=100),
+        status_filter: Optional[str] = Query(None, alias="status"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取接口测试所有完成的执行报告列表（Allure风格）"""
+    project, current_user = project_user
+
+    # 查询该项目的所有测试任务
+    task_ids = await TestTask.filter(project_id=project_id).values_list('id', flat=True)
+    if not task_ids:
+        return {"reports": [], "total": 0}
+
+    filters = {"task_id__in": task_ids, "status": "completed"}
+    if status_filter == "passed":
+        filters["failed_cases"] = 0
+    elif status_filter == "failed":
+        filters["failed_cases__gt"] = 0
+
+    total = await TestTaskRun.filter(**filters).count()
+    offset = (page - 1) * page_size
+    task_runs = await TestTaskRun.filter(**filters).order_by("-created_at").offset(offset).limit(page_size).all()
+
+    reports = []
+    for tr in task_runs:
+        task = await TestTask.get_or_none(id=tr.task_id)
+        task_name = task.name if task else f"任务 {tr.task_id}"
+
+        total_cases = tr.total_cases or 0
+        passed_cases = tr.passed_cases or 0
+        failed_cases = tr.failed_cases or 0
+        skipped_cases = tr.skipped_cases or 0
+        pass_rate = round(passed_cases / max(total_cases, 1) * 100, 1)
+        duration_ms = round((tr.duration or 0) * 1000)
+
+        # 获取套件数量
+        suite_count = await TestSuiteRun.filter(run_task_id=tr.id).count()
+
+        # 判断总体状态
+        run_status = "passed" if failed_cases == 0 and total_cases > 0 else "failed"
+
+        reports.append({
+            "run_id": tr.id,
+            "task_id": tr.task_id,
+            "task_name": task_name,
+            "status": run_status,
+            "total_cases": total_cases,
+            "passed_cases": passed_cases,
+            "failed_cases": failed_cases,
+            "skipped_cases": skipped_cases,
+            "pass_rate": pass_rate,
+            "duration_ms": duration_ms,
+            "suite_count": suite_count,
+            "start_time": tr.start_time.isoformat() if tr.start_time else None,
+            "end_time": tr.end_time.isoformat() if tr.end_time else None,
+            "created_at": tr.created_at.isoformat() if tr.created_at else None,
+        })
+
+    return {"reports": reports, "total": total}
+
+
 @router.get("/{project_id}/execution-report/{run_id}", summary="获取增强执行报告")
 async def get_enhanced_execution_report(
         project_id: int,
@@ -3867,4 +4041,191 @@ async def get_enhanced_execution_report(
         "status_distribution": status_distribution,
         "performance_stats": perf_stats,
         "trend_data": trend_data,
+    }
+
+
+# ==================== Phase 4: pytest + Allure 自动化执行 ====================
+
+import asyncio
+from api_case_run.pytest_bridge import PytestBridge, PytestCaseData, PytestRunConfig
+
+# 存储 pytest 运行结果（内存缓存，生产环境建议用数据库/Redis）
+_pytest_run_results: Dict[str, Any] = {}
+
+
+@router.post("/{project_id}/pytest/run", summary="使用 pytest 执行自动化用例")
+async def pytest_run_cases(
+        project_id: int,
+        request: Request,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    使用 pytest + allure 执行项目下的自动化用例
+
+    请求体可选参数：
+    - case_ids: list[int]  指定用例ID列表，为空则执行所有 ready 状态用例
+    - environment_id: int  测试环境ID
+    - parallel: bool       是否并行执行
+    - reruns: int           失败重试次数
+    """
+    project, current_user = project_user
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    case_ids = body.get("case_ids", [])
+    environment_id = body.get("environment_id")
+    parallel = body.get("parallel", False)
+    reruns = body.get("reruns", 0)
+
+    # 1. 获取用例
+    if case_ids:
+        test_cases = await ApiTestCase.filter(id__in=case_ids).all()
+    else:
+        # 查找项目下所有 ready 状态的用例
+        interface_ids = await ApiInterface.filter(project_id=project_id).values_list("id", flat=True)
+        base_case_ids = await ApiBaseCase.filter(interface_id__in=interface_ids).values_list("id", flat=True)
+        test_cases = await ApiTestCase.filter(base_case_id__in=base_case_ids, status="ready").all()
+
+    if not test_cases:
+        return {"status": "skipped", "message": "没有找到可执行的用例", "total": 0}
+
+    # 2. 获取环境变量
+    env_vars = {}
+    db_config_list = []
+    if environment_id:
+        from service.test_environment.models import TestEnvironment, TestEnvironmentConfig, TestEnvironmentDb
+        test_env = await TestEnvironment.get_or_none(id=environment_id)
+        if test_env:
+            # 从环境配置中获取变量（包括 base_url）
+            configs = await TestEnvironmentConfig.filter(environment_id=environment_id).all()
+            for cfg in configs:
+                env_vars[cfg.name] = cfg.value
+
+            db_configs = await TestEnvironmentDb.filter(environment_id=environment_id).all()
+            for db_config in db_configs:
+                db_config_list.append({
+                    "name": db_config.name,
+                    "type": db_config.type,
+                    "config": db_config.config
+                })
+
+    # 3. 转换为 PytestCaseData
+    pytest_cases = []
+    for tc in test_cases:
+        pytest_cases.append(PytestCaseData(
+            case_id=tc.id,
+            name=tc.name,
+            description=tc.description or "",
+            interface_name=tc.interface_name or "",
+            suite_name=f"项目{project_id}",
+            preconditions=tc.preconditions or [],
+            request=tc.request or {},
+            assertions=tc.assertions or {},
+            skip=(tc.status == "disabled"),
+        ))
+
+    # 4. 创建运行配置
+    run_config = PytestRunConfig(
+        env_vars=env_vars,
+        db_configs=db_config_list,
+        parallel=parallel,
+        reruns=reruns,
+        timeout=60,
+    )
+
+    # 5. 在线程中执行 pytest（避免阻塞事件循环）
+    bridge = PytestBridge()
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None,
+        bridge.run,
+        run_config,
+        pytest_cases,
+        f"项目{project_id}自动化测试"
+    )
+
+    # 6. 缓存结果
+    import uuid
+    run_id = str(uuid.uuid4())[:8]
+    _pytest_run_results[run_id] = {
+        **result,
+        "run_id": run_id,
+        "project_id": project_id,
+        "case_count": len(test_cases),
+        "environment_id": environment_id,
+        "executor": current_user.username,
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+    return {
+        "run_id": run_id,
+        "status": result["status"],
+        "total": result["total"],
+        "passed": result["passed"],
+        "failed": result["failed"],
+        "error": result.get("error", 0),
+        "skipped": result["skipped"],
+        "pass_rate": result["pass_rate"],
+        "duration": result["duration"],
+        "message": f"pytest 执行完成: {result['passed']} passed, {result['failed']} failed",
+        "stdout": result.get("stdout", "")[-3000:],  # 限制输出长度
+    }
+
+
+@router.get("/{project_id}/pytest/results", summary="获取 pytest 执行历史")
+async def get_pytest_results(
+        project_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取项目的 pytest 执行历史"""
+    results = [
+        {
+            "run_id": v["run_id"],
+            "status": v["status"],
+            "total": v["total"],
+            "passed": v["passed"],
+            "failed": v["failed"],
+            "skipped": v["skipped"],
+            "pass_rate": v["pass_rate"],
+            "duration": v["duration"],
+            "executor": v.get("executor", ""),
+            "created_at": v.get("created_at", ""),
+        }
+        for k, v in _pytest_run_results.items()
+        if v.get("project_id") == project_id
+    ]
+    results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return {"results": results, "total": len(results)}
+
+
+@router.get("/{project_id}/pytest/results/{run_id}", summary="获取 pytest 执行详情")
+async def get_pytest_result_detail(
+        project_id: int,
+        run_id: str,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取 pytest 单次执行的详细结果"""
+    result = _pytest_run_results.get(run_id)
+    if not result or result.get("project_id") != project_id:
+        raise HTTPException(status_code=404, detail="运行记录不存在")
+
+    return {
+        "run_id": run_id,
+        "status": result["status"],
+        "total": result["total"],
+        "passed": result["passed"],
+        "failed": result["failed"],
+        "error": result.get("error", 0),
+        "skipped": result["skipped"],
+        "pass_rate": result["pass_rate"],
+        "duration": result["duration"],
+        "stdout": result.get("stdout", ""),
+        "stderr": result.get("stderr", ""),
+        "executor": result.get("executor", ""),
+        "created_at": result.get("created_at", ""),
+        "allure_results_dir": result.get("allure_results_dir"),
+        "allure_report_dir": result.get("allure_report_dir"),
     }

@@ -519,6 +519,43 @@ class ApiTestCaseUpdateResponse(BaseModel):
         from_attributes = True
 
 
+class ApiTestCaseCreateRequest(BaseModel):
+    """接口测试用例创建请求模型"""
+    name: str = Field(..., max_length=255, description="用例名称")
+    description: Optional[str] = Field(None, description="用例描述")
+    interface_name: Optional[str] = Field(None, max_length=255, description="接口路径名称")
+    type: Optional[str] = Field('api', max_length=20, description="用例类型（api=接口用例，business=业务流用例）")
+    preconditions: Optional[list] = Field(default_factory=list, description="前置步骤列表")
+    request: Optional[dict] = Field(default_factory=dict, description="主请求信息")
+    assertions: Optional[dict] = Field(default_factory=dict, description="断言信息")
+    status: Optional[str] = Field('ready', max_length=20, description="用例状态（pending/ready/disabled）")
+
+    class Config:
+        from_attributes = True
+
+
+class ApiTestCaseCreateResponse(BaseModel):
+    """接口测试用例创建响应模型"""
+    id: int = Field(..., description="用例ID")
+    name: str = Field(..., description="用例名称")
+    description: Optional[str] = Field(None, description="用例描述")
+    interface_name: Optional[str] = Field(None, description="接口名称")
+    type: str = Field(..., description="用例类型")
+    status: str = Field(..., description="用例状态")
+    created_at: datetime = Field(..., description="创建时间")
+
+    class Config:
+        from_attributes = True
+
+
+class ApiTestCaseDeleteResponse(BaseModel):
+    """接口测试用例删除响应模型"""
+    message: str = Field(..., description="删除结果消息")
+
+    class Config:
+        from_attributes = True
+
+
 class ApiBaseCaseUpdateRequest(BaseModel):
     """基础用例更新请求模型"""
     name: Optional[str] = Field(None, description="测试用例名称")

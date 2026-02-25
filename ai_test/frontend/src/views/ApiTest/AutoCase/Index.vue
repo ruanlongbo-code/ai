@@ -8,6 +8,10 @@
           <p class="subtitle">管理接口自动化测试用例列表</p>
         </div>
         <div class="action-section">
+          <el-button type="success" @click="handlePytestRun" :loading="pytestRunning">
+            <el-icon><VideoPlay /></el-icon>
+            pytest 批量执行
+          </el-button>
           <el-button type="primary" @click="handleCreate">
             <el-icon><Plus /></el-icon>
             新建用例
@@ -20,7 +24,7 @@
       </div>
     </div>
 
-    <!-- 筛选工具栏（仅支持按接口过滤） -->
+    <!-- 筛选工具栏 -->
     <div class="filter-toolbar">
       <el-card>
         <div class="filter-content">
@@ -165,6 +169,192 @@
       </el-card>
     </div>
 
+    <!-- pytest 执行结果弹窗 -->
+    <el-dialog
+      v-model="pytestResultDialogVisible"
+      title="pytest 执行结果"
+      width="780px"
+      :close-on-click-modal="true"
+    >
+      <div class="pytest-result" v-if="pytestResult">
+        <!-- 总体状态 -->
+        <div class="pytest-status-bar" :class="pytestResult.status">
+          <div class="status-icon-large">
+            <el-icon v-if="pytestResult.status === 'passed'" :size="32"><CircleCheck /></el-icon>
+            <el-icon v-else :size="32"><CircleClose /></el-icon>
+          </div>
+          <div class="status-text-large">
+            <h2>{{ pytestResult.status === 'passed' ? '全部通过' : '存在失败' }}</h2>
+            <p>{{ pytestResult.message }}</p>
+          </div>
+        </div>
+
+        <!-- 统计卡片 -->
+        <div class="pytest-stats">
+          <div class="stat-card total">
+            <div class="stat-number">{{ pytestResult.total }}</div>
+            <div class="stat-label">总用例</div>
+          </div>
+          <div class="stat-card passed">
+            <div class="stat-number">{{ pytestResult.passed }}</div>
+            <div class="stat-label">通过</div>
+          </div>
+          <div class="stat-card failed">
+            <div class="stat-number">{{ pytestResult.failed }}</div>
+            <div class="stat-label">失败</div>
+          </div>
+          <div class="stat-card skipped">
+            <div class="stat-number">{{ pytestResult.skipped || 0 }}</div>
+            <div class="stat-label">跳过</div>
+          </div>
+          <div class="stat-card rate">
+            <div class="stat-number">{{ pytestResult.pass_rate }}%</div>
+            <div class="stat-label">通过率</div>
+          </div>
+          <div class="stat-card duration">
+            <div class="stat-number">{{ pytestResult.duration }}s</div>
+            <div class="stat-label">耗时</div>
+          </div>
+        </div>
+
+        <!-- pytest 输出日志 -->
+        <el-collapse v-if="pytestResult.stdout">
+          <el-collapse-item title="pytest 执行日志">
+            <pre class="pytest-log">{{ pytestResult.stdout }}</pre>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+
+      <template #footer>
+        <el-button @click="pytestResultDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- pytest 环境选择弹窗 -->
+    <el-dialog
+      v-model="pytestEnvDialogVisible"
+      title="选择执行环境"
+      width="500px"
+      :close-on-click-modal="false"
+    >
+      <el-form label-width="100px">
+        <el-form-item label="测试环境">
+          <el-select v-model="pytestEnvId" placeholder="选择测试环境（可选）" clearable style="width: 100%;">
+            <el-option
+              v-for="env in envOptions"
+              :key="env.value"
+              :label="env.label"
+              :value="env.value"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="失败重试">
+          <el-input-number v-model="pytestReruns" :min="0" :max="3" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pytestEnvDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="executePytestRun" :loading="pytestRunning">
+          开始执行
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 新建用例弹窗 -->
+    <el-dialog
+      v-model="createDialogVisible"
+      title="新建自动化用例"
+      width="680px"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <el-form
+        ref="createFormRef"
+        :model="createForm"
+        :rules="createRules"
+        label-width="120px"
+        label-position="top"
+      >
+        <el-form-item label="用例名称" prop="name">
+          <el-input
+            v-model="createForm.name"
+            placeholder="请输入用例名称"
+            maxlength="200"
+            show-word-limit
+          />
+        </el-form-item>
+
+        <el-form-item label="接口路径" prop="interface_name">
+          <el-input
+            v-model="createForm.interface_name"
+            placeholder="请输入接口路径，如 /api/users"
+            maxlength="255"
+          />
+        </el-form-item>
+
+        <div class="create-form-row">
+          <el-form-item label="用例类型" prop="type" style="flex: 1;">
+            <el-select v-model="createForm.type" placeholder="选择类型" style="width: 100%;">
+              <el-option label="接口用例" value="api" />
+              <el-option label="业务流用例" value="business" />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="用例状态" prop="status" style="flex: 1;">
+            <el-select v-model="createForm.status" placeholder="选择状态" style="width: 100%;">
+              <el-option label="可执行" value="ready" />
+              <el-option label="待审核" value="pending" />
+              <el-option label="不可执行" value="disabled" />
+            </el-select>
+          </el-form-item>
+        </div>
+
+        <el-form-item label="请求方法 & URL" prop="request">
+          <div class="create-request-row">
+            <el-select v-model="createForm.request.method" style="width: 140px;" placeholder="方法">
+              <el-option label="GET" value="GET" />
+              <el-option label="POST" value="POST" />
+              <el-option label="PUT" value="PUT" />
+              <el-option label="DELETE" value="DELETE" />
+              <el-option label="PATCH" value="PATCH" />
+            </el-select>
+            <el-input
+              v-model="createForm.request.url"
+              placeholder="请输入请求URL路径"
+              style="flex: 1; margin-left: 8px;"
+            />
+          </div>
+        </el-form-item>
+
+        <el-form-item label="基础URL">
+          <el-input
+            v-model="createForm.request.base_url"
+            placeholder="基础URL，如 ${{base_url}}"
+          />
+        </el-form-item>
+
+        <el-form-item label="用例描述">
+          <el-input
+            v-model="createForm.description"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入用例描述（可选）"
+            maxlength="500"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="createDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="submitCreateCase" :loading="creating">
+            确认创建
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 运行环境选择弹框 -->
     <RunEnvironmentDialog
       v-model="runEnvironmentDialogVisible"
@@ -186,8 +376,18 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Search } from '@element-plus/icons-vue'
-import { getApiTestCasesList, getProjectInterfaces, runSingleTestCase, getTestEnvironments, API_CASE_STATUS_LABELS, API_CASE_STATUS_TYPES } from '@/api/apiTest'
+import { Plus, Refresh, Search, VideoPlay, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import {
+  getApiTestCasesList,
+  getProjectInterfaces,
+  runSingleTestCase,
+  getTestEnvironments,
+  createApiTestCase,
+  deleteApiTestCase,
+  pytestRunCases,
+  API_CASE_STATUS_LABELS,
+  API_CASE_STATUS_TYPES
+} from '@/api/apiTest'
 import { useProjectStore } from '@/stores'
 import RunEnvironmentDialog from './components/RunEnvironmentDialog.vue'
 import RunResultDialog from './components/RunResultDialog.vue'
@@ -211,6 +411,49 @@ const filters = reactive({
 })
 
 const interfaceOptions = ref([])
+
+// ========== 新建用例 ==========
+const createDialogVisible = ref(false)
+const creating = ref(false)
+const createFormRef = ref()
+const createForm = reactive({
+  name: '',
+  description: '',
+  interface_name: '',
+  type: 'api',
+  status: 'ready',
+  request: {
+    method: 'GET',
+    url: '',
+    base_url: '${{base_url}}',
+    headers: {},
+    params: {},
+    body: {}
+  }
+})
+
+const createRules = {
+  name: [
+    { required: true, message: '请输入用例名称', trigger: 'blur' },
+    { min: 1, max: 200, message: '长度在 1 到 200 个字符', trigger: 'blur' }
+  ]
+}
+
+const resetCreateForm = () => {
+  createForm.name = ''
+  createForm.description = ''
+  createForm.interface_name = ''
+  createForm.type = 'api'
+  createForm.status = 'ready'
+  createForm.request = {
+    method: 'GET',
+    url: '',
+    base_url: '${{base_url}}',
+    headers: {},
+    params: {},
+    body: {}
+  }
+}
 
 // 运行相关的响应式数据
 const runEnvironmentDialogVisible = ref(false)
@@ -333,12 +576,64 @@ const handleRefresh = async () => {
 }
 
 const handleRowClick = (row) => {
-  handleView(row)
+  handleEdit(row)
 }
 
-// 占位操作：按钮功能后续实现
-const handleCreate = () => ElMessage.info('新建用例功能开发中...')
-// 编辑用例 - 跳转到独立编辑页面
+// ========== 新建用例 ==========
+const handleCreate = () => {
+  resetCreateForm()
+  createDialogVisible.value = true
+}
+
+const submitCreateCase = async () => {
+  if (!createFormRef.value) return
+  try {
+    await createFormRef.value.validate()
+    creating.value = true
+
+    const projectId = getProjectId()
+    const payload = {
+      name: createForm.name,
+      description: createForm.description || undefined,
+      interface_name: createForm.interface_name || undefined,
+      type: createForm.type,
+      status: createForm.status,
+      preconditions: [],
+      request: createForm.request,
+      assertions: { response: [] }
+    }
+
+    const res = await createApiTestCase(projectId, payload)
+    ElMessage.success('用例创建成功')
+    createDialogVisible.value = false
+    // 刷新列表
+    await loadCases()
+
+    // 如果创建成功，可以跳转到编辑页
+    const newId = res?.data?.id || res?.id
+    if (newId) {
+      ElMessageBox.confirm('用例创建成功，是否立即编辑完善请求和断言配置？', '提示', {
+        confirmButtonText: '去编辑',
+        cancelButtonText: '留在列表',
+        type: 'success'
+      }).then(() => {
+        router.push({
+          name: 'ApiTestCaseEdit',
+          params: { projectId, testCaseId: newId }
+        })
+      }).catch(() => {})
+    }
+  } catch (error) {
+    if (error.message) {
+      console.error('创建用例失败:', error)
+      ElMessage.error(`创建用例失败: ${error.response?.data?.detail || error.message}`)
+    }
+  } finally {
+    creating.value = false
+  }
+}
+
+// ========== 编辑用例 ==========
 const handleEdit = (row) => {
   const projectId = getProjectId()
   router.push({
@@ -350,21 +645,46 @@ const handleEdit = (row) => {
   })
 }
 
-const handleDelete = (row) => ElMessage.info(`删除用例（待实现）：${row.name}`)
+// ========== 删除用例 ==========
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除用例「${row.name}」吗？删除后不可恢复。`,
+      '删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
 
-// 运行用例 - 打开环境选择弹框
+    const projectId = getProjectId()
+    await deleteApiTestCase(projectId, row.id)
+    ElMessage.success('用例删除成功')
+    // 如果当前页删完了，回到上一页
+    if (cases.value.length === 1 && pagination.page > 1) {
+      pagination.page--
+    }
+    await loadCases()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除用例失败:', error)
+      ElMessage.error(`删除用例失败: ${error.response?.data?.detail || error.message || '未知错误'}`)
+    }
+  }
+}
+
+// ========== 运行用例 ==========
 const handleRun = (row) => {
   selectedCase.value = row
   runEnvironmentDialogVisible.value = true
 }
 
-// 执行用例运行
 const handleRunCase = async (runConfig) => {
   try {
-    // 关闭环境选择弹框
     runEnvironmentDialogVisible.value = false
     
-    // 获取环境名称
     let environmentName = `环境ID: ${runConfig.environmentId}`
     try {
       const envResponse = await getTestEnvironments(projectStore.currentProject.id, { page_size: 100 })
@@ -376,7 +696,6 @@ const handleRunCase = async (runConfig) => {
       console.warn('获取环境名称失败:', error)
     }
     
-    // 设置运行结果初始状态
     Object.assign(runResult, {
       status: 'running',
       case_name: runConfig.caseName,
@@ -388,26 +707,21 @@ const handleRunCase = async (runConfig) => {
       duration: null
     })
     
-    // 显示运行结果弹框
     runResultDialogVisible.value = true
     
-    // 调用后端API执行用例
     const response = await runSingleTestCase(projectStore.currentProject.id, {
       case_id: runConfig.caseId,
       environment_id: runConfig.environmentId
     })
     
-    // 处理运行结果
     const result = response.data
     const endTime = result.end_time || new Date().toISOString()
     const startTime = result.start_time || runResult.start_time
     let duration = result.duration
 
-    // 如果后端没有返回duration，则计算（转换为毫秒）
     if (!duration && startTime && endTime) {
       duration = (new Date(endTime) - new Date(startTime))
     } else if (duration) {
-      // 后端返回的是秒，转换为毫秒
       duration = parseFloat(duration) * 1000
     }
     
@@ -426,7 +740,6 @@ const handleRunCase = async (runConfig) => {
       request_info: result.request_info || []
     })
     
-    // 显示运行结果消息
     if (result.status === 'success') {
       ElMessage.success('用例运行成功')
     } else {
@@ -436,7 +749,6 @@ const handleRunCase = async (runConfig) => {
   } catch (error) {
     console.error('运行用例失败:', error)
     
-    // 更新运行结果为失败状态
     Object.assign(runResult, {
       status: 'failed',
       end_time: new Date().toISOString(),
@@ -451,17 +763,69 @@ const handleRunCase = async (runConfig) => {
   }
 }
 
-// 重新运行用例
 const handleRerunCase = () => {
   runResultDialogVisible.value = false
-  // 重新打开环境选择弹框
   setTimeout(() => {
     runEnvironmentDialogVisible.value = true
   }, 100)
 }
 
+// ========== pytest 批量执行 ==========
+const pytestRunning = ref(false)
+const pytestResultDialogVisible = ref(false)
+const pytestEnvDialogVisible = ref(false)
+const pytestResult = ref(null)
+const pytestEnvId = ref(null)
+const pytestReruns = ref(0)
+const envOptions = ref([])
+
+const loadEnvOptions = async () => {
+  try {
+    const projectId = getProjectId()
+    const res = await getTestEnvironments(projectId, { page_size: 100 })
+    const envList = res?.data?.environments || res?.environments || []
+    envOptions.value = envList.map(e => ({ label: e.name, value: e.id }))
+  } catch (e) {
+    console.error('加载环境列表失败:', e)
+  }
+}
+
+const handlePytestRun = async () => {
+  await loadEnvOptions()
+  pytestEnvDialogVisible.value = true
+}
+
+const executePytestRun = async () => {
+  pytestEnvDialogVisible.value = false
+  pytestRunning.value = true
+  pytestResult.value = null
+
+  try {
+    const projectId = getProjectId()
+    const payload = {
+      environment_id: pytestEnvId.value || undefined,
+      parallel: false,
+      reruns: pytestReruns.value,
+    }
+
+    const res = await pytestRunCases(projectId, payload)
+    pytestResult.value = res?.data || res
+    pytestResultDialogVisible.value = true
+
+    if (pytestResult.value?.status === 'passed') {
+      ElMessage.success(`pytest 执行完成: 全部通过 (${pytestResult.value.passed}条)`)
+    } else {
+      ElMessage.warning(`pytest 执行完成: ${pytestResult.value?.failed || 0}条失败`)
+    }
+  } catch (error) {
+    console.error('pytest 执行失败:', error)
+    ElMessage.error(`pytest 执行失败: ${error.response?.data?.detail || error.message}`)
+  } finally {
+    pytestRunning.value = false
+  }
+}
+
 onMounted(() => {
-  // 路由带入的接口过滤（如 ?interfaceId=123）
   if (route.query.interfaceId) {
     const q = Number(route.query.interfaceId)
     if (!Number.isNaN(q)) filters.interfaceId = q
@@ -470,7 +834,6 @@ onMounted(() => {
   loadCases()
 })
 
-// 搜索输入节流/防抖
 let searchTimer = null
 const handleSearch = () => {
   if (searchTimer) clearTimeout(searchTimer)
@@ -600,11 +963,128 @@ const handleSearch = () => {
 
 .table-footer { display: flex; justify-content: flex-end; padding: 12px 0; }
 
+/* 新建用例弹窗表单样式 */
+.create-form-row {
+  display: flex;
+  gap: 16px;
+}
+
+.create-request-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ========== pytest 结果弹窗样式 ========== */
+.pytest-result {
+  padding: 0 8px;
+}
+
+.pytest-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+
+.pytest-status-bar.passed {
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+  border: 1px solid #86efac;
+}
+
+.pytest-status-bar.failed {
+  background: linear-gradient(135deg, #fef2f2, #fecaca);
+  border: 1px solid #fca5a5;
+}
+
+.status-icon-large {
+  flex-shrink: 0;
+}
+
+.pytest-status-bar.passed .status-icon-large {
+  color: #22c55e;
+}
+
+.pytest-status-bar.failed .status-icon-large {
+  color: #ef4444;
+}
+
+.status-text-large h2 {
+  margin: 0 0 4px 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.status-text-large p {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.pytest-stats {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  text-align: center;
+  padding: 16px 8px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #fafbfc;
+}
+
+.stat-card.total { border-left: 3px solid #3b82f6; }
+.stat-card.passed { border-left: 3px solid #22c55e; }
+.stat-card.failed { border-left: 3px solid #ef4444; }
+.stat-card.skipped { border-left: 3px solid #f59e0b; }
+.stat-card.rate { border-left: 3px solid #8b5cf6; }
+.stat-card.duration { border-left: 3px solid #06b6d4; }
+
+.stat-number {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+.pytest-log {
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 400px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .auto-case-page { padding: 16px; }
   .header-content { flex-direction: column; gap: 16px; align-items: stretch; }
   .filter-content { flex-direction: column; gap: 16px; align-items: stretch; }
   .filter-left .el-select, .filter-right .el-input { width: 100% !important; }
+  .create-form-row { flex-direction: column; gap: 0; }
+  .pytest-stats { grid-template-columns: repeat(3, 1fr); }
 }
 </style>

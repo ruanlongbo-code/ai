@@ -34,7 +34,11 @@ class UiStepRequest(BaseModel):
     sort_order: int = Field(0, description="步骤顺序")
     action: str = Field(..., min_length=1, description="操作描述")
     input_data: Optional[str] = Field(None, description="输入数据")
-    expected_result: Optional[str] = Field(None, description="预期结果")
+    expected_result: str = Field(..., min_length=1, description="预期结果（AI验证用）")
+    # 结构化断言
+    assertion_type: str = Field(..., min_length=1, description="断言类型")
+    assertion_target: Optional[str] = Field(None, description="断言目标（CSS选择器）")
+    assertion_value: Optional[str] = Field(None, description="断言期望值")
 
 
 class UiCaseCreateRequest(BaseModel):
@@ -60,6 +64,9 @@ class UiStepResponse(BaseModel):
     action: str
     input_data: Optional[str] = None
     expected_result: Optional[str] = None
+    assertion_type: Optional[str] = None
+    assertion_target: Optional[str] = None
+    assertion_value: Optional[str] = None
 
 
 class UiCaseResponse(BaseModel):
@@ -92,6 +99,9 @@ class UiStepResultResponse(BaseModel):
     actual_result: Optional[str] = None
     error_message: Optional[str] = None
     duration_ms: Optional[int] = None
+    assertion_type: Optional[str] = None
+    assertion_passed: Optional[bool] = None
+    assertion_detail: Optional[str] = None
 
 
 class UiExecutionResponse(BaseModel):
@@ -105,6 +115,7 @@ class UiExecutionResponse(BaseModel):
     failed_steps: int
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
+    duration_ms: Optional[int] = None
     error_message: Optional[str] = None
     executor_id: int
     created_at: datetime
@@ -114,3 +125,79 @@ class UiExecutionResponse(BaseModel):
 class UiExecutionListResponse(BaseModel):
     executions: List[UiExecutionResponse]
     total: int
+
+
+# ======================== 测试报告 ========================
+
+class UiReportListItem(BaseModel):
+    """报告列表项"""
+    execution_id: int
+    case_id: int
+    case_name: Optional[str] = None
+    page_name: Optional[str] = None
+    status: str
+    total_steps: int
+    passed_steps: int
+    failed_steps: int
+    pass_rate: float
+    duration_ms: Optional[int] = None
+    executor_name: Optional[str] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    created_at: datetime
+    # 断言统计
+    total_assertions: int = 0
+    passed_assertions: int = 0
+    failed_assertions: int = 0
+
+
+class UiReportListResponse(BaseModel):
+    """报告列表响应"""
+    reports: List[UiReportListItem]
+    total: int
+
+
+class UiReportStepDetail(BaseModel):
+    """报告中的步骤详情"""
+    sort_order: int
+    action: str
+    input_data: Optional[str] = None
+    expected_result: Optional[str] = None
+    status: str
+    actual_result: Optional[str] = None
+    error_message: Optional[str] = None
+    screenshot_url: Optional[str] = None
+    ai_action: Optional[str] = None
+    duration_ms: Optional[int] = None
+    assertion_type: Optional[str] = None
+    assertion_passed: Optional[bool] = None
+    assertion_detail: Optional[str] = None
+
+
+class UiTestReportResponse(BaseModel):
+    """UI测试报告响应"""
+    execution_id: int
+    case_id: int
+    case_name: str
+    page_name: Optional[str] = None
+    page_url: Optional[str] = None
+    priority: str
+    preconditions: Optional[str] = None
+    status: str
+    # 统计
+    total_steps: int
+    passed_steps: int
+    failed_steps: int
+    pass_rate: float
+    total_duration_ms: int
+    avg_step_duration_ms: int
+    # 断言统计
+    total_assertions: int = 0
+    passed_assertions: int = 0
+    failed_assertions: int = 0
+    # 时间
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    executor_name: Optional[str] = None
+    # 步骤详情
+    steps: List[UiReportStepDetail] = []

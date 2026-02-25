@@ -18,6 +18,10 @@
             <el-icon><ArrowLeft /></el-icon>
             返回列表
           </el-button>
+          <el-button type="success" @click="handleAiOptimize" :loading="aiOptimizing" :disabled="!requirement.id">
+            <el-icon><MagicStick /></el-icon>
+            AI优化需求
+          </el-button>
           <el-button type="primary" @click="handleEdit" :disabled="!canEdit">
             <el-icon><Edit /></el-icon>
             编辑需求
@@ -290,6 +294,93 @@
     :project-id="projectId"
   />
 
+  <!-- AI 优化需求弹窗 -->
+  <el-dialog
+    v-model="aiOptimizeDialogVisible"
+    title="AI 优化需求"
+    width="900px"
+    :close-on-click-modal="false"
+    top="5vh"
+  >
+    <div class="ai-optimize-dialog">
+      <!-- 优化进度 -->
+      <div v-if="aiOptimizing" class="ai-progress">
+        <div class="progress-header">
+          <el-icon class="is-loading"><MagicStick /></el-icon>
+          <span>AI 正在分析和优化需求，请稍候...</span>
+        </div>
+        <div class="ai-stream-output" v-if="aiStreamText">
+          <pre>{{ aiStreamText }}</pre>
+        </div>
+      </div>
+
+      <!-- 优化结果 -->
+      <div v-if="aiOptimizeResult && !aiOptimizing" class="ai-result">
+        <el-alert type="success" :closable="false" style="margin-bottom: 16px;">
+          <template #title>
+            <span style="font-weight: 600;">{{ aiOptimizeResult.optimization_summary || 'AI优化完成' }}</span>
+          </template>
+        </el-alert>
+
+        <el-tabs type="border-card">
+          <el-tab-pane label="优化后标题">
+            <div class="compare-section">
+              <div class="compare-item">
+                <label>原标题</label>
+                <div class="original-text">{{ requirement.title }}</div>
+              </div>
+              <div class="compare-item">
+                <label>优化后标题</label>
+                <div class="optimized-text">{{ aiOptimizeResult.optimized_title }}</div>
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="优化后描述">
+            <div class="compare-section">
+              <div class="compare-item">
+                <label>原描述</label>
+                <div class="original-text description-box">{{ requirement.description || '无描述' }}</div>
+              </div>
+              <div class="compare-item">
+                <label>优化后描述</label>
+                <div class="optimized-text description-box" v-html="formatDescription(aiOptimizeResult.optimized_description || '')"></div>
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="验收标准">
+            <div class="criteria-list" v-if="aiOptimizeResult.acceptance_criteria?.length">
+              <div v-for="(c, i) in aiOptimizeResult.acceptance_criteria" :key="i" class="criteria-item">
+                <el-icon><CircleCheck /></el-icon>
+                <span>{{ c }}</span>
+              </div>
+            </div>
+            <el-empty v-else description="无验收标准" :image-size="60" />
+          </el-tab-pane>
+
+          <el-tab-pane label="潜在风险">
+            <div class="risk-list" v-if="aiOptimizeResult.risks?.length">
+              <div v-for="(r, i) in aiOptimizeResult.risks" :key="i" class="risk-item">
+                <el-icon><Warning /></el-icon>
+                <span>{{ r }}</span>
+              </div>
+            </div>
+            <el-empty v-else description="无风险提示" :image-size="60" />
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+    </div>
+
+    <template #footer>
+      <el-button @click="aiOptimizeDialogVisible = false">关闭</el-button>
+      <el-button v-if="aiOptimizeResult && !aiOptimizing" type="primary" :loading="aiApplying" @click="handleApplyOptimization">
+        <el-icon><Check /></el-icon>
+        应用优化结果
+      </el-button>
+    </template>
+  </el-dialog>
+
   <!-- XMind 模板设置弹窗 -->
   <el-dialog
       v-model="xmindDialogVisible"
@@ -394,13 +485,14 @@
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Edit, MagicStick, Refresh, Download } from '@element-plus/icons-vue'
+import { ArrowLeft, Edit, MagicStick, Refresh, Download, CircleCheck, Warning, Check } from '@element-plus/icons-vue'
 import {
   getRequirementDetail,
   updateRequirement,
   generateFunctionalCases,
   getFunctionalCasesList,
   exportCasesAsXmind,
+  applyAiOptimization,
   REQUIREMENT_STATUS_LABELS,
   REQUIREMENT_PRIORITY_LABELS,
   REQUIREMENT_PRIORITY_COLORS
@@ -433,6 +525,13 @@ const expandedScenarios = ref([])
 // 用例详情弹框相关
 const showCaseDetailModal = ref(false)
 const selectedCaseId = ref(null)
+
+// AI 优化需求相关
+const aiOptimizing = ref(false)
+const aiOptimizeDialogVisible = ref(false)
+const aiOptimizeResult = ref(null)
+const aiStreamText = ref('')
+const aiApplying = ref(false)
 
 // XMind 导出相关
 const xmindDialogVisible = ref(false)
@@ -688,6 +787,87 @@ const handleViewCase = (caseItem) => {
   // 显示用例详情弹框
   selectedCaseId.value = caseItem.id
   showCaseDetailModal.value = true
+}
+
+// ===== AI 优化需求相关方法 =====
+const handleAiOptimize = async () => {
+  if (!projectId.value || !requirementId.value) {
+    ElMessage.error('缺少必要参数')
+    return
+  }
+
+  aiOptimizeDialogVisible.value = true
+  aiOptimizing.value = true
+  aiStreamText.value = ''
+  aiOptimizeResult.value = null
+
+  try {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || ''
+    const token = localStorage.getItem('token')
+    const url = `${baseUrl}/functional_test/${projectId.value}/requirements/${requirementId.value}/ai_optimize`
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+
+      const text = decoder.decode(value, { stream: true })
+      const lines = text.split('\n')
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6))
+            if (data.type === 'chunk') {
+              aiStreamText.value += data.content
+            } else if (data.type === 'result') {
+              aiOptimizeResult.value = data.data
+            } else if (data.type === 'error') {
+              ElMessage.error(data.message || 'AI优化失败')
+            }
+          } catch (e) {
+            // ignore parse errors for partial data
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('AI优化需求失败:', error)
+    ElMessage.error('AI优化需求失败，请稍后重试')
+  } finally {
+    aiOptimizing.value = false
+  }
+}
+
+const handleApplyOptimization = async () => {
+  if (!aiOptimizeResult.value) return
+
+  try {
+    aiApplying.value = true
+    await applyAiOptimization(projectId.value, requirementId.value, aiOptimizeResult.value)
+    ElMessage.success('优化结果已应用到需求')
+    aiOptimizeDialogVisible.value = false
+    await loadRequirement()
+  } catch (error) {
+    console.error('应用优化结果失败:', error)
+    ElMessage.error('应用优化结果失败')
+  } finally {
+    aiApplying.value = false
+  }
 }
 
 // ===== XMind 导出相关方法 =====
@@ -989,6 +1169,120 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   min-height: 200px;
+}
+
+/* ===== AI 优化需求弹窗样式 ===== */
+.ai-optimize-dialog {
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+.ai-progress {
+  padding: 24px;
+  text-align: center;
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 16px;
+  color: #409eff;
+  margin-bottom: 16px;
+}
+
+.ai-stream-output {
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 300px;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.ai-stream-output pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 13px;
+  color: #606266;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.compare-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.compare-item label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #909399;
+  margin-bottom: 6px;
+}
+
+.original-text {
+  background: #fff3f3;
+  border: 1px solid #fde2e2;
+  border-left: 4px solid #f56c6c;
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #606266;
+  line-height: 1.6;
+}
+
+.optimized-text {
+  background: #f0f9eb;
+  border: 1px solid #e1f3d8;
+  border-left: 4px solid #67c23a;
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #303133;
+  line-height: 1.6;
+}
+
+.description-box {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.criteria-list, .risk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.criteria-item, .risk-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.criteria-item {
+  background: #f0f9eb;
+  color: #67c23a;
+}
+
+.criteria-item span {
+  color: #303133;
+}
+
+.risk-item {
+  background: #fdf6ec;
+  color: #e6a23c;
+}
+
+.risk-item span {
+  color: #303133;
 }
 
 /* ===== XMind 弹窗样式 ===== */

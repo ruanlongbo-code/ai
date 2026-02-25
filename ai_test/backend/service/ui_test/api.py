@@ -16,6 +16,8 @@ from .schemas import (
     UiPageCreateRequest, UiPageUpdateRequest, UiPageResponse,
     UiCaseCreateRequest, UiCaseUpdateRequest, UiCaseResponse, UiStepResponse,
     UiExecutionResponse, UiExecutionListResponse, UiStepResultResponse,
+    UiTestReportResponse, UiReportStepDetail,
+    UiReportListItem, UiReportListResponse,
 )
 from service.user.models import User
 from service.project.models import Project
@@ -115,9 +117,14 @@ async def _build_case_response(case: UiTestCase) -> UiCaseResponse:
         status=case.status, last_run_at=case.last_run_at,
         creator_id=case.creator_id, created_at=case.created_at, updated_at=case.updated_at,
         steps=[
-            UiStepResponse(id=s.id, case_id=s.case_id, sort_order=s.sort_order,
-                           action=s.action, input_data=s.input_data,
-                           expected_result=s.expected_result)
+            UiStepResponse(
+                id=s.id, case_id=s.case_id, sort_order=s.sort_order,
+                action=s.action, input_data=s.input_data,
+                expected_result=s.expected_result,
+                assertion_type=s.assertion_type,
+                assertion_target=s.assertion_target,
+                assertion_value=s.assertion_value,
+            )
             for s in steps
         ],
     )
@@ -173,6 +180,9 @@ async def create_case(
             case_id=case.id, sort_order=step_req.sort_order,
             action=step_req.action, input_data=step_req.input_data,
             expected_result=step_req.expected_result,
+            assertion_type=step_req.assertion_type,
+            assertion_target=step_req.assertion_target,
+            assertion_value=step_req.assertion_value,
         )
     return await _build_case_response(case)
 
@@ -199,6 +209,9 @@ async def update_case(
                 case_id=case.id, sort_order=step_req.sort_order,
                 action=step_req.action, input_data=step_req.input_data,
                 expected_result=step_req.expected_result,
+                assertion_type=step_req.assertion_type,
+                assertion_target=step_req.assertion_target,
+                assertion_value=step_req.assertion_value,
             )
 
     return await _build_case_response(case)
@@ -253,8 +266,13 @@ async def execute_case(
     )
 
     step_data_list = [
-        {"id": s.id, "sort_order": s.sort_order, "action": s.action,
-         "input_data": s.input_data, "expected_result": s.expected_result}
+        {
+            "id": s.id, "sort_order": s.sort_order, "action": s.action,
+            "input_data": s.input_data, "expected_result": s.expected_result,
+            "assertion_type": s.assertion_type,
+            "assertion_target": s.assertion_target,
+            "assertion_value": s.assertion_value,
+        }
         for s in steps
     ]
 
@@ -264,6 +282,7 @@ async def execute_case(
         executor = UiTestExecutor()
         passed_count = 0
         failed_count = 0
+        exec_start = datetime.now()
 
         try:
             await executor.start(headless=True)
@@ -274,10 +293,20 @@ async def execute_case(
                 event_type = event.get("type")
 
                 if event_type == "init":
-                    yield f"data: {json.dumps({'type': 'init', 'screenshot': event['screenshot'], 'url': event['url']}, ensure_ascii=False)}\n\n"
+                    screenshot_name = event['screenshot']
+                    init_data = {
+                        'type': 'init',
+                        'screenshot': screenshot_name,
+                        'screenshot_url': f'/screenshots/{screenshot_name}',
+                        'url': event['url'],
+                    }
+                    yield f"data: {json.dumps(init_data, ensure_ascii=False)}\n\n"
 
                 elif event_type == "step_start":
                     yield f"data: {json.dumps({'type': 'step_start', 'step_id': event['step_id'], 'sort_order': event['sort_order']}, ensure_ascii=False)}\n\n"
+
+                elif event_type == "ai_thinking":
+                    yield f"data: {json.dumps({'type': 'ai_thinking', 'step_id': event['step_id'], 'action': event.get('action', ''), 'description': event.get('description', '')}, ensure_ascii=False)}\n\n"
 
                 elif event_type == "step_done":
                     step_status = event.get("status", "failed")
@@ -286,26 +315,35 @@ async def execute_case(
                     else:
                         failed_count += 1
 
+                    screenshot_path = event.get("screenshot")
                     await UiTestStepResult.create(
                         execution_id=execution.id,
                         step_id=event["step_id"],
                         sort_order=event.get("sort_order", 0),
                         status=step_status,
-                        screenshot_path=event.get("screenshot"),
+                        screenshot_path=screenshot_path,
                         ai_action=event.get("ai_action"),
                         actual_result=event.get("actual_result"),
                         error_message=event.get("error_message"),
                         duration_ms=event.get("duration_ms"),
+                        assertion_type=event.get("assertion_type"),
+                        assertion_passed=event.get("assertion_passed"),
+                        assertion_detail=event.get("assertion_detail"),
                     )
 
                     sse_data = {
                         "type": "step_done",
                         "step_id": event["step_id"],
                         "status": step_status,
-                        "screenshot": event.get("screenshot"),
+                        "screenshot": screenshot_path,
+                        "screenshot_url": f"/screenshots/{screenshot_path}" if screenshot_path else None,
+                        "ai_action": event.get("ai_action"),
                         "actual_result": event.get("actual_result"),
                         "error_message": event.get("error_message"),
                         "duration_ms": event.get("duration_ms"),
+                        "assertion_type": event.get("assertion_type"),
+                        "assertion_passed": event.get("assertion_passed"),
+                        "assertion_detail": event.get("assertion_detail"),
                     }
                     yield f"data: {json.dumps(sse_data, ensure_ascii=False)}\n\n"
 
@@ -316,17 +354,21 @@ async def execute_case(
                     pass
 
             final_status = "passed" if failed_count == 0 else "failed"
+            exec_end = datetime.now()
+            total_duration = int((exec_end - exec_start).total_seconds() * 1000)
+
             execution.status = final_status
             execution.passed_steps = passed_count
             execution.failed_steps = failed_count
-            execution.end_time = datetime.now()
+            execution.end_time = exec_end
+            execution.duration_ms = total_duration
             await execution.save()
 
             case.status = final_status
             case.last_run_at = datetime.now()
             await case.save()
 
-            yield f"data: {json.dumps({'type': 'execution_done', 'status': final_status, 'passed': passed_count, 'failed': failed_count}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'execution_done', 'status': final_status, 'passed': passed_count, 'failed': failed_count, 'duration_ms': total_duration}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             logger.error(f"UI测试执行异常: {e}\n{traceback.format_exc()}")
@@ -371,6 +413,7 @@ async def get_execution_list(
             status=ex.status, total_steps=ex.total_steps,
             passed_steps=ex.passed_steps, failed_steps=ex.failed_steps,
             start_time=ex.start_time, end_time=ex.end_time,
+            duration_ms=ex.duration_ms,
             error_message=ex.error_message, executor_id=ex.executor_id,
             created_at=ex.created_at,
         ))
@@ -395,6 +438,7 @@ async def get_execution_detail(
         status=execution.status, total_steps=execution.total_steps,
         passed_steps=execution.passed_steps, failed_steps=execution.failed_steps,
         start_time=execution.start_time, end_time=execution.end_time,
+        duration_ms=execution.duration_ms,
         error_message=execution.error_message, executor_id=execution.executor_id,
         created_at=execution.created_at,
         step_results=[
@@ -404,9 +448,173 @@ async def get_execution_detail(
                 screenshot_url=f"/screenshots/{sr.screenshot_path}" if sr.screenshot_path else None,
                 ai_action=sr.ai_action, actual_result=sr.actual_result,
                 error_message=sr.error_message, duration_ms=sr.duration_ms,
+                assertion_type=sr.assertion_type,
+                assertion_passed=sr.assertion_passed,
+                assertion_detail=sr.assertion_detail,
             )
             for sr in step_results
         ],
+    )
+
+
+# ======================== 测试报告 ========================
+
+@router.get("/{project_id}/reports", summary="获取测试报告列表")
+async def get_report_list(
+    project_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取已完成的UI测试执行报告列表"""
+    filters = {"project_id": project_id, "status__in": ["passed", "failed"]}
+    if status_filter:
+        filters = {"project_id": project_id, "status": status_filter}
+
+    total = await UiTestExecution.filter(**filters).count()
+    offset = (page - 1) * page_size
+    executions = await UiTestExecution.filter(**filters).order_by("-created_at").offset(offset).limit(page_size).all()
+
+    result = []
+    for ex in executions:
+        case = await UiTestCase.get_or_none(id=ex.case_id)
+        page_name = None
+        if case and case.page_id:
+            pg = await UiTestPage.get_or_none(id=case.page_id)
+            if pg:
+                page_name = pg.name
+
+        # 获取执行者名
+        executor_name = None
+        try:
+            executor_user = await User.get_or_none(id=ex.executor_id)
+            if executor_user:
+                executor_name = executor_user.username
+        except Exception:
+            pass
+
+        pass_rate = round(ex.passed_steps / ex.total_steps * 100, 1) if ex.total_steps > 0 else 0
+
+        # 断言统计
+        step_results = await UiTestStepResult.filter(execution_id=ex.id).all()
+        total_assertions = sum(1 for sr in step_results if sr.assertion_type)
+        passed_assertions = sum(1 for sr in step_results if sr.assertion_type and sr.assertion_passed)
+
+        result.append(UiReportListItem(
+            execution_id=ex.id,
+            case_id=ex.case_id,
+            case_name=case.name if case else None,
+            page_name=page_name,
+            status=ex.status,
+            total_steps=ex.total_steps,
+            passed_steps=ex.passed_steps,
+            failed_steps=ex.failed_steps,
+            pass_rate=pass_rate,
+            duration_ms=ex.duration_ms,
+            executor_name=executor_name,
+            start_time=ex.start_time,
+            end_time=ex.end_time,
+            created_at=ex.created_at,
+            total_assertions=total_assertions,
+            passed_assertions=passed_assertions,
+            failed_assertions=total_assertions - passed_assertions,
+        ))
+
+    return UiReportListResponse(reports=result, total=total)
+
+
+@router.get("/{project_id}/executions/{execution_id}/report", summary="获取测试报告")
+async def get_test_report(
+    project_id: int, execution_id: int,
+    project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """生成并返回UI测试执行的详细报告"""
+    execution = await UiTestExecution.get_or_none(id=execution_id, project_id=project_id)
+    if not execution:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="执行记录不存在")
+
+    case = await UiTestCase.get_or_none(id=execution.case_id)
+    if not case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用例不存在")
+
+    # 获取页面信息
+    page_name, page_url = None, None
+    if case.page_id:
+        page = await UiTestPage.get_or_none(id=case.page_id)
+        if page:
+            page_name = page.name
+            page_url = page.url
+
+    # 获取步骤信息
+    steps = await UiTestStep.filter(case_id=case.id).order_by("sort_order").all()
+    step_map = {s.id: s for s in steps}
+
+    # 获取步骤结果
+    step_results = await UiTestStepResult.filter(execution_id=execution.id).order_by("sort_order").all()
+
+    # 计算统计信息
+    total_duration = sum(sr.duration_ms or 0 for sr in step_results)
+    avg_duration = total_duration // len(step_results) if step_results else 0
+
+    # 断言统计
+    total_assertions = sum(1 for sr in step_results if sr.assertion_type)
+    passed_assertions = sum(1 for sr in step_results if sr.assertion_type and sr.assertion_passed)
+    failed_assertions = total_assertions - passed_assertions
+
+    # 获取执行者信息
+    executor_name = None
+    try:
+        executor_user = await User.get_or_none(id=execution.executor_id)
+        if executor_user:
+            executor_name = executor_user.username
+    except Exception:
+        pass
+
+    # 构建步骤详情
+    report_steps = []
+    for sr in step_results:
+        step_info = step_map.get(sr.step_id)
+        report_steps.append(UiReportStepDetail(
+            sort_order=sr.sort_order,
+            action=step_info.action if step_info else "未知步骤",
+            input_data=step_info.input_data if step_info else None,
+            expected_result=step_info.expected_result if step_info else None,
+            status=sr.status,
+            actual_result=sr.actual_result,
+            error_message=sr.error_message,
+            screenshot_url=f"/screenshots/{sr.screenshot_path}" if sr.screenshot_path else None,
+            ai_action=sr.ai_action,
+            duration_ms=sr.duration_ms,
+            assertion_type=sr.assertion_type,
+            assertion_passed=sr.assertion_passed,
+            assertion_detail=sr.assertion_detail,
+        ))
+
+    pass_rate = round(execution.passed_steps / execution.total_steps * 100, 1) if execution.total_steps > 0 else 0
+
+    return UiTestReportResponse(
+        execution_id=execution.id,
+        case_id=case.id,
+        case_name=case.name,
+        page_name=page_name,
+        page_url=page_url,
+        priority=case.priority,
+        preconditions=case.preconditions,
+        status=execution.status,
+        total_steps=execution.total_steps,
+        passed_steps=execution.passed_steps,
+        failed_steps=execution.failed_steps,
+        pass_rate=pass_rate,
+        total_duration_ms=execution.duration_ms or total_duration,
+        avg_step_duration_ms=avg_duration,
+        total_assertions=total_assertions,
+        passed_assertions=passed_assertions,
+        failed_assertions=failed_assertions,
+        start_time=execution.start_time,
+        end_time=execution.end_time,
+        executor_name=executor_name,
+        steps=report_steps,
     )
 
 
@@ -416,9 +624,6 @@ async def get_execution_detail(
 async def ws_execute_case(websocket: WebSocket, project_id: int, case_id: int):
     """
     WebSocket 端点：AI 执行 UI 测试用例 + CDP Screencast 实时浏览器画面推流。
-    前端通过 ws:// 连接后，会收到两类消息：
-    - {"type": "frame", "data": "<base64 jpeg>"}  — 实时浏览器画面帧
-    - {"type": "step_start/step_done/..."}          — 执行进度事件
     """
     await websocket.accept()
 
@@ -469,14 +674,20 @@ async def ws_execute_case(websocket: WebSocket, project_id: int, case_id: int):
     )
 
     step_data_list = [
-        {"id": s.id, "sort_order": s.sort_order, "action": s.action,
-         "input_data": s.input_data, "expected_result": s.expected_result}
+        {
+            "id": s.id, "sort_order": s.sort_order, "action": s.action,
+            "input_data": s.input_data, "expected_result": s.expected_result,
+            "assertion_type": s.assertion_type,
+            "assertion_target": s.assertion_target,
+            "assertion_value": s.assertion_value,
+        }
         for s in steps
     ]
 
     from .executor import UiTestExecutor
     executor = UiTestExecutor()
     ws_closed = False
+    exec_start = datetime.now()
 
     try:
         await executor.start(headless=True)
@@ -519,14 +730,21 @@ async def ws_execute_case(websocket: WebSocket, project_id: int, case_id: int):
                     actual_result=event.get("actual_result"),
                     error_message=event.get("error_message"),
                     duration_ms=event.get("duration_ms"),
+                    assertion_type=event.get("assertion_type"),
+                    assertion_passed=event.get("assertion_passed"),
+                    assertion_detail=event.get("assertion_detail"),
                 )
 
         result = await executor.run_case_live(page.url, step_data_list, send_message)
 
+        exec_end = datetime.now()
+        total_duration = int((exec_end - exec_start).total_seconds() * 1000)
+
         execution.status = result["status"]
         execution.passed_steps = result["passed"]
         execution.failed_steps = result["failed"]
-        execution.end_time = datetime.now()
+        execution.end_time = exec_end
+        execution.duration_ms = total_duration
         await execution.save()
 
         case.status = result["status"]

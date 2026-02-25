@@ -174,7 +174,9 @@ export const useTabStore = defineStore('tabs', {
         '/api-test/plan': { title: '测试计划', icon: 'Calendar' },
         '/ui-test/page': { title: '页面管理', icon: 'Monitor' },
         '/ui-test/case': { title: '用例管理', icon: 'View' },
-        '/user-management/users': { title: '用户管理', icon: 'UserFilled' }
+        '/user-management/users': { title: '用户管理', icon: 'UserFilled' },
+        '/data-analysis/defect': { title: '缺陷分析', icon: 'PieChart' },
+        '/data-analysis/behavior': { title: '用户行为分析', icon: 'TrendCharts' }
       }
 
       // 优先使用路由 meta（确保编辑页等动态路由显示正确标题与图标）

@@ -322,6 +322,44 @@ export const extractRequirementFromDocument = (projectId, formData) => {
   })
 }
 
+// ==================== AI 优化需求 ====================
+
+/**
+ * AI优化需求（SSE流式）
+ * @param {number} projectId - 项目ID
+ * @param {number} requirementId - 需求ID
+ * @returns {string} SSE URL
+ */
+export const getAiOptimizeRequirementUrl = (projectId, requirementId) => {
+  return `/functional_test/${projectId}/requirements/${requirementId}/ai_optimize`
+}
+
+/**
+ * AI优化需求（POST请求获取EventSource）
+ */
+export const aiOptimizeRequirement = (projectId, requirementId) => {
+  return request({
+    url: `/functional_test/${projectId}/requirements/${requirementId}/ai_optimize`,
+    method: 'post',
+    responseType: 'stream',
+    timeout: 120000
+  })
+}
+
+/**
+ * 应用AI优化结果
+ * @param {number} projectId - 项目ID
+ * @param {number} requirementId - 需求ID
+ * @param {Object} data - 优化数据
+ */
+export const applyAiOptimization = (projectId, requirementId, data) => {
+  return request({
+    url: `/functional_test/${projectId}/requirements/${requirementId}/apply_optimization`,
+    method: 'put',
+    data
+  })
+}
+
 // ==================== 排期需求关联 API ====================
 
 /**

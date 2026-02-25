@@ -40,28 +40,38 @@
             </el-menu-item>
           </el-sub-menu>
 
-          <!-- 测试排期管理 -->
+          <!-- 需求排期 -->
           <el-sub-menu index="schedule">
             <template #title>
               <el-icon><Calendar /></el-icon>
-              <span>排期管理</span>
+              <span>需求排期</span>
             </template>
             <el-menu-item index="/schedule/iteration">
               <el-icon><List /></el-icon>
               <template #title>排期管理</template>
             </el-menu-item>
-            <el-menu-item index="/schedule/dashboard">
-              <el-icon><TrendCharts /></el-icon>
-              <template #title>进度看板</template>
+            <el-menu-item index="/api-test/plan">
+              <el-icon><Calendar /></el-icon>
+              <template #title>测试计划</template>
             </el-menu-item>
-            <el-menu-item index="/schedule/daily-report">
-              <el-icon><Edit /></el-icon>
-              <template #title>同步进度</template>
-            </el-menu-item>
-            <el-menu-item index="/schedule/feishu">
-              <el-icon><ChatDotRound /></el-icon>
-              <template #title>需求群管理</template>
-            </el-menu-item>
+            <el-sub-menu index="ai-sync-progress">
+              <template #title>
+                <el-icon><DataAnalysis /></el-icon>
+                <span>AI同步进度</span>
+              </template>
+              <el-menu-item index="/schedule/daily-report">
+                <el-icon><Edit /></el-icon>
+                <template #title>同步进度</template>
+              </el-menu-item>
+              <el-menu-item index="/schedule/dashboard">
+                <el-icon><TrendCharts /></el-icon>
+                <template #title>进度看板</template>
+              </el-menu-item>
+              <el-menu-item index="/schedule/feishu">
+                <el-icon><ChatDotRound /></el-icon>
+                <template #title>发送需求群</template>
+              </el-menu-item>
+            </el-sub-menu>
           </el-sub-menu>
 
           <!-- 知识库 -->
@@ -78,29 +88,35 @@
               <el-icon><Search /></el-icon>
               <template #title>知识检索</template>
             </el-menu-item>
-            <el-menu-item index="/knowledge/case-set">
-              <el-icon><Notebook /></el-icon>
-              <template #title>用例集</template>
-            </el-menu-item>
-            <el-menu-item index="/knowledge/review/requirement">
-              <el-icon><Document /></el-icon>
-              <template #title>需求评审</template>
-            </el-menu-item>
-            <el-menu-item index="/knowledge/review/technical">
-              <el-icon><Cpu /></el-icon>
-              <template #title>技术评审</template>
-            </el-menu-item>
-            <el-menu-item index="/knowledge/review/testcase">
-              <el-icon><Checked /></el-icon>
-              <template #title>用例评审</template>
-            </el-menu-item>
+            <el-sub-menu index="knowledge-dataset">
+              <template #title>
+                <el-icon><DataBoard /></el-icon>
+                <span>数据集</span>
+              </template>
+              <el-menu-item index="/knowledge/case-set">
+                <el-icon><Notebook /></el-icon>
+                <template #title>用例集</template>
+              </el-menu-item>
+              <el-menu-item index="/knowledge/review/requirement">
+                <el-icon><Document /></el-icon>
+                <template #title>需求评审</template>
+              </el-menu-item>
+              <el-menu-item index="/knowledge/review/technical">
+                <el-icon><Cpu /></el-icon>
+                <template #title>技术评审</template>
+              </el-menu-item>
+              <el-menu-item index="/knowledge/review/testcase">
+                <el-icon><Checked /></el-icon>
+                <template #title>用例评审</template>
+              </el-menu-item>
+            </el-sub-menu>
           </el-sub-menu>
 
-          <!-- 功能测试 -->
+          <!-- AI生成测试用例 -->
           <el-sub-menu index="function-test">
             <template #title>
               <el-icon><Operation /></el-icon>
-              <span>功能测试</span>
+              <span>AI生成测试用例</span>
             </template>
             <el-menu-item index="/function-test/requirement">
               <el-icon><Document /></el-icon>
@@ -116,11 +132,11 @@
             </el-menu-item>
           </el-sub-menu>
 
-          <!-- 接口测试 -->
+          <!-- AI生成接口测试 -->
           <el-sub-menu index="api-test">
             <template #title>
               <el-icon><Connection /></el-icon>
-              <span>接口测试</span>
+              <span>AI生成接口测试</span>
             </template>
             <el-menu-item index="/api-test/import">
               <el-icon><Upload /></el-icon>
@@ -138,13 +154,73 @@
               <el-icon><VideoPlay /></el-icon>
               <template #title>自动化用例</template>
             </el-menu-item>
+            <el-menu-item index="/api-test/allure-reports">
+              <el-icon><TrendCharts /></el-icon>
+              <template #title>测试报告</template>
+            </el-menu-item>
+          </el-sub-menu>
+
+          <!-- AI执行测试用例 -->
+          <el-sub-menu index="ui-test">
+            <template #title>
+              <el-icon><Monitor /></el-icon>
+              <span>AI执行测试用例</span>
+            </template>
+            <el-menu-item index="/ui-test/page">
+              <el-icon><Notebook /></el-icon>
+              <template #title>页面管理</template>
+            </el-menu-item>
+            <el-menu-item index="/ui-test/case">
+              <el-icon><List /></el-icon>
+              <template #title>用例管理</template>
+            </el-menu-item>
+            <el-menu-item index="/ui-test/reports">
+              <el-icon><DataAnalysis /></el-icon>
+              <template #title>测试报告</template>
+            </el-menu-item>
+          </el-sub-menu>
+
+          <!-- AI压力测试 -->
+          <el-sub-menu index="stress-test">
+            <template #title>
+              <el-icon><Odometer /></el-icon>
+              <span>AI压力测试</span>
+            </template>
+            <el-menu-item index="/stress-test/scenario">
+              <el-icon><Document /></el-icon>
+              <template #title>测试场景</template>
+            </el-menu-item>
+            <el-menu-item index="/stress-test/task">
+              <el-icon><VideoPlay /></el-icon>
+              <template #title>压测任务</template>
+            </el-menu-item>
+            <el-menu-item index="/stress-test/reports">
+              <el-icon><DataAnalysis /></el-icon>
+              <template #title>性能报告</template>
+            </el-menu-item>
+            <el-menu-item index="/stress-test/monitors">
+              <el-icon><TrendCharts /></el-icon>
+              <template #title>实时监控</template>
+            </el-menu-item>
+            <el-menu-item index="/stress-test/baseline">
+              <el-icon><Histogram /></el-icon>
+              <template #title>基线管理</template>
+            </el-menu-item>
+          </el-sub-menu>
+
+          <!-- CICD集成 -->
+          <el-sub-menu index="cicd">
+            <template #title>
+              <el-icon><Promotion /></el-icon>
+              <span>CICD集成</span>
+            </template>
+            <el-menu-item index="/project-settings/environment">
+              <el-icon><Platform /></el-icon>
+              <template #title>环境管理</template>
+            </el-menu-item>
             <el-menu-item index="/api-test/suite">
               <el-icon><Collection /></el-icon>
               <template #title>测试套件</template>
-            </el-menu-item>
-            <el-menu-item index="/api-test/plan">
-              <el-icon><Calendar /></el-icon>
-              <template #title>测试计划</template>
             </el-menu-item>
             <el-menu-item index="/api-test/quick-debug">
               <el-icon><Lightning /></el-icon>
@@ -160,22 +236,22 @@
             </el-menu-item>
           </el-sub-menu>
 
-          <!-- UI测试 -->
-          <el-sub-menu index="ui-test">
+
+          <!-- AI数据分析 -->
+          <el-sub-menu index="data-analysis">
             <template #title>
-              <el-icon><Monitor /></el-icon>
-              <span>UI测试</span>
+              <el-icon><PieChart /></el-icon>
+              <span>AI数据分析</span>
             </template>
-            <el-menu-item index="/ui-test/page">
-              <el-icon><Notebook /></el-icon>
-              <template #title>页面管理</template>
+            <el-menu-item index="/data-analysis/defect">
+              <el-icon><Warning /></el-icon>
+              <template #title>缺陷分析</template>
             </el-menu-item>
-            <el-menu-item index="/ui-test/case">
-              <el-icon><List /></el-icon>
-              <template #title>用例管理</template>
+            <el-menu-item index="/data-analysis/behavior">
+              <el-icon><TrendCharts /></el-icon>
+              <template #title>用户行为分析</template>
             </el-menu-item>
           </el-sub-menu>
-
 
           <!-- 用户管理 -->
           <el-sub-menu v-if="isAdmin" index="user-management">
@@ -189,11 +265,6 @@
             </el-menu-item>
           </el-sub-menu>
 
-          <!-- 未来可期 -->
-          <el-menu-item index="/coming-soon">
-            <el-icon><MagicStick /></el-icon>
-            <template #title>未来可期</template>
-          </el-menu-item>
         </el-menu>
       </el-aside>
 

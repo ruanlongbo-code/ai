@@ -162,7 +162,51 @@ export function updateApiTestCase(projectId, testCaseId, data) {
   })
 }
 
+// 创建接口测试用例
+export function createApiTestCase(projectId, data) {
+  return request({
+    url: `/api_test/${projectId}/test-cases`,
+    method: 'post',
+    data
+  })
+}
+
+// 删除接口测试用例
+export function deleteApiTestCase(projectId, testCaseId) {
+  return request({
+    url: `/api_test/${projectId}/test-cases/${testCaseId}`,
+    method: 'delete'
+  })
+}
+
 // 运行单条测试用例
+// ==================== pytest + Allure 执行 ====================
+
+// 使用 pytest 执行自动化用例
+export function pytestRunCases(projectId, data) {
+  return request({
+    url: `/api_test/${projectId}/pytest/run`,
+    method: 'post',
+    data
+  })
+}
+
+// 获取 pytest 执行历史
+export function getPytestResults(projectId) {
+  return request({
+    url: `/api_test/${projectId}/pytest/results`,
+    method: 'get'
+  })
+}
+
+// 获取 pytest 执行详情
+export function getPytestResultDetail(projectId, runId) {
+  return request({
+    url: `/api_test/${projectId}/pytest/results/${runId}`,
+    method: 'get'
+  })
+}
+
 export function runSingleTestCase(projectId, data) {
   return request({
     url: `/test_execution/${projectId}/cases/run`,
@@ -473,5 +517,14 @@ export function getEnhancedExecutionReport(projectId, runId) {
   return request({
     url: `/api_test/${projectId}/execution-report/${runId}`,
     method: 'get'
+  })
+}
+
+// 获取Allure风格报告列表
+export function getApiAllureReports(projectId, params = {}) {
+  return request({
+    url: `/api_test/${projectId}/allure-reports`,
+    method: 'get',
+    params
   })
 }

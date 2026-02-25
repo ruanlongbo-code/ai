@@ -44,7 +44,22 @@ class UiTestStep(Model):
     sort_order = fields.IntField(default=0, description="步骤顺序")
     action = fields.TextField(description="操作描述（自然语言）")
     input_data = fields.TextField(null=True, description="输入数据")
-    expected_result = fields.TextField(null=True, description="预期结果")
+    expected_result = fields.TextField(null=True, description="预期结果（AI验证用）")
+    # 结构化断言字段
+    assertion_type = fields.CharField(
+        max_length=50, null=True, default=None,
+        description="断言类型: url_contains/url_equals/title_contains/title_equals/"
+                    "element_visible/element_hidden/element_text_contains/element_text_equals/"
+                    "element_exists/page_contains/toast_contains"
+    )
+    assertion_target = fields.CharField(
+        max_length=500, null=True, default=None,
+        description="断言目标（CSS选择器或无）"
+    )
+    assertion_value = fields.TextField(
+        null=True, default=None,
+        description="断言期望值"
+    )
 
     class Meta:
         table = "ui_test_step"
@@ -62,8 +77,11 @@ class UiTestExecution(Model):
     failed_steps = fields.IntField(default=0, description="失败步骤数")
     start_time = fields.DatetimeField(null=True, description="开始时间")
     end_time = fields.DatetimeField(null=True, description="结束时间")
+    duration_ms = fields.IntField(null=True, description="总耗时(毫秒)")
     error_message = fields.TextField(null=True, description="错误信息")
     executor_id = fields.IntField(description="执行者ID")
+    # 报告摘要（JSON）
+    report_summary = fields.TextField(null=True, description="报告摘要JSON")
     created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
 
     class Meta:
@@ -83,6 +101,10 @@ class UiTestStepResult(Model):
     actual_result = fields.TextField(null=True, description="实际结果")
     error_message = fields.TextField(null=True, description="错误信息")
     duration_ms = fields.IntField(null=True, description="耗时(毫秒)")
+    # 断言结果
+    assertion_type = fields.CharField(max_length=50, null=True, description="断言类型")
+    assertion_passed = fields.BooleanField(null=True, description="断言是否通过")
+    assertion_detail = fields.TextField(null=True, description="断言详情")
     created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
 
     class Meta:

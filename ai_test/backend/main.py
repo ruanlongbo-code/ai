@@ -23,6 +23,8 @@ from service.test_execution.api import router as test_execution_router
 from service.schedule.api import router as schedule_router
 from service.knowledge.api import router as knowledge_router
 from service.ui_test.api import router as ui_test_router
+from service.stress_test.api import router as stress_test_router
+from service.data_analysis.api import router as data_analysis_router
 import uvicorn
 
 # 加载环境变量
@@ -57,6 +59,7 @@ TORTOISE_ORM = {
                 "service.schedule.models",
                 "service.knowledge.models",  # 包含 ReviewRecord
                 "service.ui_test.models",
+                "service.stress_test.models",
             ],
             "default_connection": "default",
         }
@@ -110,6 +113,17 @@ async def run_migrations():
         "ALTER TABLE `requirement_doc` ADD COLUMN `schedule_item_id` INT NULL",
         # Phase 2: 数据驱动测试 - ApiTestCase增加test_data字段
         "ALTER TABLE `api_test_case` ADD COLUMN `test_data` JSON NULL",
+        # UI测试步骤：结构化断言字段
+        "ALTER TABLE `ui_test_step` ADD COLUMN `assertion_type` VARCHAR(50) NULL",
+        "ALTER TABLE `ui_test_step` ADD COLUMN `assertion_target` VARCHAR(500) NULL",
+        "ALTER TABLE `ui_test_step` ADD COLUMN `assertion_value` TEXT NULL",
+        # UI测试执行记录：总耗时和报告摘要
+        "ALTER TABLE `ui_test_execution` ADD COLUMN `duration_ms` INT NULL",
+        "ALTER TABLE `ui_test_execution` ADD COLUMN `report_summary` TEXT NULL",
+        # UI测试步骤结果：断言结果
+        "ALTER TABLE `ui_test_step_result` ADD COLUMN `assertion_type` VARCHAR(50) NULL",
+        "ALTER TABLE `ui_test_step_result` ADD COLUMN `assertion_passed` TINYINT(1) NULL",
+        "ALTER TABLE `ui_test_step_result` ADD COLUMN `assertion_detail` TEXT NULL",
     ]
     for sql in migrations:
         try:
@@ -233,6 +247,8 @@ app.include_router(test_execution_router, prefix="/test_execution", tags=["测�
 app.include_router(schedule_router, prefix="/schedule", tags=["测试排期管理"])
 app.include_router(knowledge_router, prefix="/knowledge", tags=["知识库"])
 app.include_router(ui_test_router, prefix="/ui_test", tags=["UI测试"])
+app.include_router(stress_test_router, tags=["压力测试"])
+app.include_router(data_analysis_router, prefix="/data_analysis", tags=["数据分析"])
 
 if __name__ == "__main__":
     uvicorn.run(

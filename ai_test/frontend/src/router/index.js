@@ -250,6 +250,19 @@ const routes = [
         component: () => import('../views/ApiTest/ExecutionReport/Index.vue'),
         meta: { title: '执行报告', icon: 'DataAnalysis' }
       },
+      // Allure风格接口测试报告
+      {
+        path: 'api-test/allure-reports',
+        name: 'ApiAllureReportList',
+        component: () => import('../views/ApiTest/AllureReport/List.vue'),
+        meta: { title: '测试报告', icon: 'TrendCharts' }
+      },
+      {
+        path: 'api-test/allure-report/:projectId/:runId',
+        name: 'ApiAllureReportDetail',
+        component: () => import('../views/ApiTest/AllureReport/Detail.vue'),
+        meta: { title: '报告详情', icon: 'TrendCharts' }
+      },
       {
         path: 'test-execution/task-run/:projectId/:runId',
         name: 'TaskRunReport',
@@ -281,6 +294,61 @@ const routes = [
         component: () => import('../views/UiTest/Execute/Index.vue'),
         meta: { title: 'AI执行', icon: 'VideoPlay' }
       },
+      {
+        path: 'ui-test/reports',
+        name: 'UiTestReportList',
+        component: () => import('../views/UiTest/ReportList/Index.vue'),
+        meta: { title: '测试报告', icon: 'DataAnalysis' }
+      },
+      {
+        path: 'ui-test/report/:executionId',
+        name: 'UiTestReport',
+        component: () => import('../views/UiTest/Report/Index.vue'),
+        meta: { title: '报告详情', icon: 'Document' }
+      },
+      // 压力测试
+      {
+        path: 'stress-test/scenario',
+        name: 'StressTestScenario',
+        component: () => import('../views/StressTest/Scenario/Index.vue'),
+        meta: { title: '测试场景', icon: 'Document' }
+      },
+      {
+        path: 'stress-test/task',
+        name: 'StressTestTask',
+        component: () => import('../views/StressTest/Task/Index.vue'),
+        meta: { title: '压测任务', icon: 'VideoPlay' }
+      },
+      {
+        path: 'stress-test/report/:taskId',
+        name: 'StressTestReport',
+        component: () => import('../views/StressTest/Report/Index.vue'),
+        meta: { title: '性能报告', icon: 'DataAnalysis' }
+      },
+      {
+        path: 'stress-test/monitor/:taskId',
+        name: 'StressTestMonitor',
+        component: () => import('../views/StressTest/Monitor/Index.vue'),
+        meta: { title: '实时监控', icon: 'TrendCharts' }
+      },
+      {
+        path: 'stress-test/reports',
+        name: 'StressTestReportList',
+        component: () => import('../views/StressTest/ReportList/Index.vue'),
+        meta: { title: '性能报告', icon: 'DataAnalysis' }
+      },
+      {
+        path: 'stress-test/monitors',
+        name: 'StressTestMonitorList',
+        component: () => import('../views/StressTest/MonitorList/Index.vue'),
+        meta: { title: '实时监控', icon: 'TrendCharts' }
+      },
+      {
+        path: 'stress-test/baseline',
+        name: 'StressTestBaseline',
+        component: () => import('../views/StressTest/Baseline/Index.vue'),
+        meta: { title: '基线管理', icon: 'Histogram' }
+      },
       // 测试排期管理
       {
         path: 'schedule/iteration',
@@ -305,6 +373,19 @@ const routes = [
         name: 'ScheduleFeishu',
         component: () => import('../views/Schedule/Feishu/Index.vue'),
         meta: { title: '需求群管理', icon: 'ChatDotRound' }
+      },
+      // 数据分析
+      {
+        path: 'data-analysis/defect',
+        name: 'DataAnalysisDefect',
+        component: () => import('../views/DataAnalysis/DefectAnalysis/Index.vue'),
+        meta: { title: '缺陷分析', icon: 'PieChart' }
+      },
+      {
+        path: 'data-analysis/behavior',
+        name: 'DataAnalysisBehavior',
+        component: () => import('../views/DataAnalysis/BehaviorAnalysis/Index.vue'),
+        meta: { title: '用户行为分析', icon: 'TrendCharts' }
       },
       // 用户管理
       {

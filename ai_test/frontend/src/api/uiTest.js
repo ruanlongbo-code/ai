@@ -57,3 +57,13 @@ export const getUiExecutionDetail = (projectId, executionId) => {
 export const getExecuteCaseUrl = (projectId, caseId) => {
   return `/ui_test/${projectId}/cases/${caseId}/execute`
 }
+
+// ======================== 测试报告 ========================
+
+export const getUiTestReports = (projectId, params = {}) => {
+  return request({ url: `/ui_test/${projectId}/reports`, method: 'get', params })
+}
+
+export const getUiTestReport = (projectId, executionId) => {
+  return request({ url: `/ui_test/${projectId}/executions/${executionId}/report`, method: 'get' })
+}

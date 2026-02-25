@@ -63,7 +63,7 @@ class AuthUtils:
     def verify_token(token: str, token_type: str = "access") -> Optional[dict]:
         """验证令牌"""
         try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         except jwt.exceptions.ExpiredSignatureError:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
