@@ -340,6 +340,41 @@ export const extractRequirementStream = (projectId, formData) => {
   })
 }
 
+// ==================== 一键文档生成XMind ====================
+
+/**
+ * 一键文档生成XMind用例（SSE流式）
+ * @param {number} projectId - 项目ID
+ * @param {FormData} formData - 包含 text, files[], url
+ * @returns {Promise<Response>} fetch Response (SSE stream)
+ */
+export const docToXmindStream = (projectId, formData) => {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token')
+  return fetch(`${baseURL}/functional_test/${projectId}/doc_to_xmind_stream?project_id=${projectId}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    },
+    body: formData
+  })
+}
+
+/**
+ * 根据用例数据下载XMind文件
+ * @param {number} projectId - 项目ID
+ * @param {Object} data - { scenarios, title }
+ */
+export const downloadXmindFromCases = (projectId, data) => {
+  return request({
+    url: `/functional_test/${projectId}/download_xmind_from_cases`,
+    method: 'post',
+    data,
+    responseType: 'blob',
+    timeout: 60000
+  })
+}
+
 // ==================== AI 优化需求 ====================
 
 /**

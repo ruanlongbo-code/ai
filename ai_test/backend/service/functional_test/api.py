@@ -1733,6 +1733,336 @@ async def export_cases_as_xmind(
 
 # ==================== AI 优化需求 ====================
 
+@router.post("/{project_id}/doc_to_xmind_stream", summary="一键文档生成XMind用例（流式）")
+async def doc_to_xmind_stream(
+        project_id: int,
+        text: Optional[str] = Form(None, description="直接输入的需求文本"),
+        files: list[UploadFile] = File(default=[], description="上传的文件（文档/图片）"),
+        url: Optional[str] = Form(None, description="文档链接"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    一键从文档/文本/图片生成完整的XMind测试用例。
+    流程：解析输入 → AI一次性生成场景+用例 → 构建XMind → SSE流式返回进度+结果。
+    最终返回 base64 编码的 XMind 文件 + 用例预览数据。
+    """
+    project, current_user = project_user
+
+    has_text = text and text.strip()
+    has_files = files and len(files) > 0 and any(f.filename for f in files)
+    has_url = url and url.strip()
+
+    if not has_text and not has_files and not has_url:
+        raise HTTPException(status_code=400, detail="请输入文本、上传文件或提供链接")
+
+    import base64
+    import os
+    from langchain_core.messages import HumanMessage
+
+    # ---- 预处理：提取所有输入内容 ----
+    all_text_parts = []
+    image_data_list = []
+
+    if has_text:
+        all_text_parts.append(f"【用户输入】\n{text.strip()}")
+
+    if has_files:
+        for f in files:
+            if not f.filename:
+                continue
+            fname = f.filename.lower()
+            ftype = f.content_type or ""
+            file_content = await f.read()
+            if not file_content:
+                continue
+
+            if ftype.startswith("image/") or fname.endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
+                if len(file_content) <= 10 * 1024 * 1024:
+                    b64 = base64.b64encode(file_content).decode('utf-8')
+                    ct = ftype if ftype else "image/png"
+                    image_data_list.append((b64, ct, f.filename))
+            else:
+                ext = os.path.splitext(f.filename)[1].lower()
+                doc_exts = {'.pdf', '.docx', '.doc', '.txt', '.md'}
+                if ext in doc_exts:
+                    try:
+                        from utils.parser.requirement_document_parser import extract_text_from_file
+                        doc_text = extract_text_from_file(f.filename, file_content)
+                        if doc_text and doc_text.strip():
+                            if len(doc_text) > 8000:
+                                doc_text = doc_text[:8000] + "\n[...文档内容过长已截断...]"
+                            all_text_parts.append(f"【文档：{f.filename}】\n{doc_text}")
+                    except Exception as e:
+                        all_text_parts.append(f"【文档解析失败：{f.filename}】{str(e)}")
+
+    if has_url:
+        try:
+            from utils.parser.requirement_document_parser import extract_text_from_url
+            if url.startswith(('http://', 'https://')):
+                url_text = extract_text_from_url(url)
+                if url_text and url_text.strip():
+                    if len(url_text) > 8000:
+                        url_text = url_text[:8000] + "\n[...链接内容过长已截断...]"
+                    all_text_parts.append(f"【链接：{url}】\n{url_text}")
+        except Exception as e:
+            all_text_parts.append(f"【链接获取失败】{str(e)}")
+
+    merged_text = "\n\n---\n\n".join(all_text_parts) if all_text_parts else ""
+
+    from config.settings import llm
+
+    # ---- 构建一次性生成用例的 Prompt ----
+    case_gen_prompt = """你是一位资深测试工程师。请根据以下需求内容，直接生成完整的、按测试场景分组的功能测试用例。
+
+## 核心要求
+1. 必须按"测试场景"分组输出，每个场景包含多个用例
+2. 覆盖正向验证、边界测试、异常处理三类场景
+3. 用例要全面、详细、可执行
+4. 场景名称简洁，能一眼看出验证的功能点
+
+## 输出格式（严格JSON，不要markdown标记）
+[
+  {
+    "scenario": "场景名称",
+    "cases": [
+      {
+        "case_name": "用例名称",
+        "priority": "P0/P1/P2/P3",
+        "preconditions": "前置条件",
+        "test_steps": "详细测试步骤（多步骤用换行分隔）",
+        "expected_result": "预期结果"
+      }
+    ]
+  }
+]
+
+## 用例质量标准
+- P0: 核心功能主流程，必须通过
+- P1: 重要分支流程和关键边界
+- P2: 一般性边界和异常
+- P3: 极端情况和低频场景
+- 每个场景至少2个用例，建议3-5个
+- 测试步骤必须具体可操作，不能笼统
+- 预期结果必须明确可验证"""
+
+    content_blocks = []
+
+    if merged_text and image_data_list:
+        content_blocks.append({"type": "text", "text": f"{case_gen_prompt}\n\n## 需求文档内容\n{merged_text}\n\n## 以下图片也是需求的一部分，请识别图中文字后一并分析生成用例："})
+        for b64, ct, fname in image_data_list:
+            content_blocks.append({"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}"}})
+    elif image_data_list:
+        content_blocks.append({"type": "text", "text": f"{case_gen_prompt}\n\n请识别以下图片中的需求内容，然后生成完整测试用例："})
+        for b64, ct, fname in image_data_list:
+            content_blocks.append({"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}"}})
+    elif merged_text:
+        content_blocks.append({"type": "text", "text": f"{case_gen_prompt}\n\n## 需求文档内容\n{merged_text}"})
+    else:
+        raise HTTPException(status_code=400, detail="未能获取到任何有效内容")
+
+    message = HumanMessage(content=content_blocks)
+
+    async def generate():
+        try:
+            # 进度 10%：输入摘要
+            input_parts = []
+            if has_text:
+                input_parts.append("文本")
+            if image_data_list:
+                input_parts.append(f"{len(image_data_list)}张图片")
+            doc_count = sum(1 for p in all_text_parts if p.startswith("【文档"))
+            if doc_count:
+                input_parts.append(f"{doc_count}个文档")
+            if has_url:
+                input_parts.append("链接")
+            summary = "、".join(input_parts)
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'已接收 {summary}，正在AI分析生成用例...', 'progress': 10}, ensure_ascii=False)}\n\n"
+
+            # 进度 20%：开始 AI 生成
+            yield f"data: {json.dumps({'type': 'progress', 'message': 'AI 正在分析需求并生成测试场景和用例...', 'progress': 20}, ensure_ascii=False)}\n\n"
+
+            full_content = ""
+            chunk_count = 0
+            async for chunk in llm.astream([message]):
+                if chunk.content:
+                    full_content += chunk.content
+                    chunk_count += 1
+                    # 每10个chunk发一次内容更新
+                    if chunk_count % 10 == 0:
+                        progress = min(20 + int(chunk_count * 0.5), 75)
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk.content, 'progress': progress}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': 'AI生成完成，正在解析用例数据...', 'progress': 80}, ensure_ascii=False)}\n\n"
+
+            # 解析JSON
+            clean = full_content.strip()
+            if clean.startswith("```json"):
+                clean = clean[7:]
+            if clean.startswith("```"):
+                clean = clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            clean = clean.strip()
+
+            json_match = re.search(r'\[[\s\S]*\]', clean)
+            scenarios = []
+            if json_match:
+                try:
+                    scenarios = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'AI返回的用例数据解析失败，请重试'}, ensure_ascii=False)}\n\n"
+                    return
+            else:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'AI未返回有效的用例数据，请检查输入内容后重试'}, ensure_ascii=False)}\n\n"
+                return
+
+            if not scenarios:
+                yield f"data: {json.dumps({'type': 'error', 'message': '未生成任何测试用例，输入内容可能不是需求文档'}, ensure_ascii=False)}\n\n"
+                return
+
+            # 统计
+            total_cases = sum(len(s.get("cases", [])) for s in scenarios)
+            total_scenarios = len(scenarios)
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'成功生成 {total_scenarios} 个测试场景、{total_cases} 条用例，正在构建XMind文件...', 'progress': 85}, ensure_ascii=False)}\n\n"
+
+            # 构建 XMind
+            from utils.xmind_generator import generate_xmind_file
+
+            # 转换为 XMind 格式的 scenario_groups
+            scenario_groups = {}
+            priority_map = {"P0": 1, "P1": 2, "P2": 3, "P3": 4}
+
+            for s in scenarios:
+                scenario_name = s.get("scenario", "未分类场景")
+                cases = []
+                for idx, c in enumerate(s.get("cases", []), 1):
+                    p_str = c.get("priority", "P2")
+                    cases.append({
+                        "case_no": f"TC-{idx:03d}",
+                        "case_name": c.get("case_name", f"用例{idx}"),
+                        "priority": priority_map.get(p_str, 3),
+                        "preconditions": c.get("preconditions", ""),
+                        "test_steps": c.get("test_steps", ""),
+                        "expected_result": c.get("expected_result", ""),
+                    })
+                scenario_groups[scenario_name] = cases
+
+            # 自动提取标题
+            title_hint = ""
+            if has_text and text.strip():
+                title_hint = text.strip()[:50]
+            elif all_text_parts:
+                for p in all_text_parts:
+                    if "】" in p:
+                        title_hint = p.split("】")[0].replace("【", "").replace("文档：", "").replace("链接：", "")[:50]
+                        break
+            if not title_hint:
+                title_hint = "需求文档"
+
+            root_title = f"{title_hint} - 测试用例"
+
+            xmind_bytes = generate_xmind_file(
+                requirement_title=root_title,
+                template_settings={
+                    "show_priority": True,
+                    "show_case_id": True,
+                    "show_node_labels": True,
+                    "scenario_prefix": "",
+                    "scenario_suffix": "",
+                },
+                scenario_groups=scenario_groups
+            )
+
+            xmind_b64 = base64.b64encode(xmind_bytes).decode('utf-8')
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': 'XMind文件构建完成！', 'progress': 95}, ensure_ascii=False)}\n\n"
+
+            # 发送最终结果
+            yield f"data: {json.dumps({'type': 'result', 'data': {'scenarios': scenarios, 'total_cases': total_cases, 'total_scenarios': total_scenarios, 'xmind_base64': xmind_b64, 'xmind_filename': f'{title_hint}_测试用例.xmind'}}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'type': 'done', 'progress': 100})}\n\n"
+
+        except Exception as e:
+            logger.error(f"一键生成XMind失败: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
+
+
+@router.post("/{project_id}/download_xmind_from_cases", summary="根据用例数据生成XMind文件下载")
+async def download_xmind_from_cases(
+        project_id: int,
+        request_data: dict,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    接收前端传来的场景分组用例数据，生成XMind文件并返回下载。
+    用于用户预览用例后再次下载或修改后下载。
+    """
+    from utils.xmind_generator import generate_xmind_file
+    from urllib.parse import quote
+
+    scenarios = request_data.get("scenarios", [])
+    title = request_data.get("title", "测试用例")
+
+    if not scenarios:
+        raise HTTPException(status_code=400, detail="用例数据为空")
+
+    priority_map = {"P0": 1, "P1": 2, "P2": 3, "P3": 4}
+    scenario_groups = {}
+
+    for s in scenarios:
+        scenario_name = s.get("scenario", "未分类场景")
+        cases = []
+        for idx, c in enumerate(s.get("cases", []), 1):
+            p_str = c.get("priority", "P2")
+            cases.append({
+                "case_no": f"TC-{idx:03d}",
+                "case_name": c.get("case_name", f"用例{idx}"),
+                "priority": priority_map.get(p_str, 3) if isinstance(p_str, str) else p_str,
+                "preconditions": c.get("preconditions", ""),
+                "test_steps": c.get("test_steps", ""),
+                "expected_result": c.get("expected_result", ""),
+            })
+        scenario_groups[scenario_name] = cases
+
+    xmind_bytes = generate_xmind_file(
+        requirement_title=title,
+        template_settings={
+            "show_priority": True,
+            "show_case_id": True,
+            "show_node_labels": True,
+            "scenario_prefix": "",
+            "scenario_suffix": "",
+        },
+        scenario_groups=scenario_groups
+    )
+
+    safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)[:50]
+    filename = f"{safe_title}_测试用例.xmind"
+    encoded_filename = quote(filename)
+
+    return Response(
+        content=xmind_bytes,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "Content-Type": "application/octet-stream",
+        }
+    )
+
+
+# ==================== AI 优化需求 ====================
+
 @router.post("/{project_id}/requirements/{requirement_id}/ai_optimize", summary="AI优化需求")
 async def ai_optimize_requirement(
         project_id: int,
