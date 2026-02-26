@@ -378,6 +378,24 @@ export const downloadXmindFromCases = (projectId, data) => {
 // ==================== AI 优化需求 ====================
 
 /**
+ * AI优化需求文档（支持MD文件上传，SSE流式）
+ * @param {number} projectId - 项目ID
+ * @param {FormData} formData - 包含 text, file, title
+ * @returns {Promise<Response>} fetch Response (SSE stream)
+ */
+export const aiOptimizeDocStream = (projectId, formData) => {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token')
+  return fetch(`${baseURL}/functional_test/${projectId}/ai_optimize_doc_stream?project_id=${projectId}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    },
+    body: formData
+  })
+}
+
+/**
  * AI优化需求（SSE流式）
  * @param {number} projectId - 项目ID
  * @param {number} requirementId - 需求ID

@@ -1811,29 +1811,57 @@ async def doc_to_xmind_stream(
 
     from config.settings import llm
 
+    # ---- 查询知识库获取XMind参考用例 ----
+    rag_reference = ""
+    try:
+        from utils.knowledge_enhancer import search_rag_knowledge, get_case_set_knowledge
+        # 从RAG知识库查找相关的测试用例参考
+        search_query = text.strip()[:200] if has_text and text.strip() else "测试用例 功能测试"
+        rag_result = await search_rag_knowledge(search_query)
+        if rag_result:
+            rag_reference += f"\n## 知识库参考用例（请学习以下格式和覆盖思路）\n{rag_result[:4000]}\n"
+
+        # 从历史用例集获取参考
+        case_set_ref = await get_case_set_knowledge(project_id)
+        if case_set_ref:
+            rag_reference += f"\n## 历史用例集参考\n{case_set_ref[:2000]}\n"
+    except Exception as e:
+        logger.warning(f"知识库检索失败（不影响生成）: {e}")
+
     # ---- 构建一次性生成用例的 Prompt ----
-    case_gen_prompt = """你是一位资深测试工程师。请根据以下需求内容，直接生成完整的、按测试场景分组的功能测试用例。
+    case_gen_prompt = f"""你是一位资深测试工程师。请根据以下需求内容，直接生成完整的、按测试点（测试场景）分组的功能测试用例。
+{rag_reference}
 
 ## 核心要求
-1. 必须按"测试场景"分组输出，每个场景包含多个用例
-2. 覆盖正向验证、边界测试、异常处理三类场景
+1. 必须按"测试点"分组输出，每个测试点包含多个用例
+2. 覆盖正向验证、边界测试、异常处理三类测试点
 3. 用例要全面、详细、可执行
-4. 场景名称简洁，能一眼看出验证的功能点
+4. 测试点名称简洁，能一眼看出验证的功能点
+5. 如果知识库参考中有相关用例，请学习其覆盖思路和写法风格
+
+## XMind层级结构说明
+生成的用例将以如下 XMind 层级展示：
+  需求标题（根节点）
+    └── 测试点（场景分组）
+         └── 测试标题（用例名称）
+              ├── 前置条件
+              ├── 测试步骤
+              └── 预期结果
 
 ## 输出格式（严格JSON，不要markdown标记）
 [
-  {
-    "scenario": "场景名称",
+  {{
+    "scenario": "测试点名称",
     "cases": [
-      {
-        "case_name": "用例名称",
+      {{
+        "case_name": "用例标题",
         "priority": "P0/P1/P2/P3",
-        "preconditions": "前置条件",
-        "test_steps": "详细测试步骤（多步骤用换行分隔）",
-        "expected_result": "预期结果"
-      }
+        "preconditions": "前置条件（环境、数据、用户状态等）",
+        "test_steps": "详细测试步骤（多步骤用换行分隔，如：\\n1.打开页面\\n2.输入数据\\n3.点击提交）",
+        "expected_result": "预期结果（明确可验证的结果描述）"
+      }}
     ]
-  }
+  }}
 ]
 
 ## 用例质量标准
@@ -1841,7 +1869,8 @@ async def doc_to_xmind_stream(
 - P1: 重要分支流程和关键边界
 - P2: 一般性边界和异常
 - P3: 极端情况和低频场景
-- 每个场景至少2个用例，建议3-5个
+- 每个测试点至少2个用例，建议3-5个
+- 前置条件必须写清楚环境和数据准备
 - 测试步骤必须具体可操作，不能笼统
 - 预期结果必须明确可验证"""
 
@@ -2158,6 +2187,156 @@ async def ai_optimize_requirement(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AI优化需求失败: {str(e)}"
         )
+
+
+@router.post("/{project_id}/ai_optimize_doc_stream", summary="AI优化需求文档（支持MD文件上传，流式）")
+async def ai_optimize_doc_stream(
+        project_id: int,
+        text: Optional[str] = Form(None, description="直接输入的需求文本"),
+        file: Optional[UploadFile] = File(None, description="需求文档文件（支持 MD、TXT、PDF、DOCX）"),
+        title: Optional[str] = Form(None, description="需求标题（可选）"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    AI优化需求文档（支持上传MD等文件 + 文本输入），流式输出。
+    先总结需求文档内容，再输出结构化的优化需求。
+    """
+    project, current_user = project_user
+
+    has_text = text and text.strip()
+    has_file = file and file.filename
+
+    if not has_text and not has_file:
+        raise HTTPException(status_code=400, detail="请输入需求文本或上传需求文档")
+
+    # 提取文档内容
+    doc_content = ""
+    doc_filename = ""
+
+    if has_file:
+        import os
+        ext = os.path.splitext(file.filename)[1].lower()
+        supported_ext = {'.md', '.txt', '.pdf', '.docx', '.doc'}
+        if ext not in supported_ext:
+            raise HTTPException(status_code=400, detail=f"不支持的文件格式: {ext}，支持 MD、TXT、PDF、DOCX")
+
+        file_content = await file.read()
+        if len(file_content) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="文件大小不能超过20MB")
+
+        try:
+            from utils.parser.requirement_document_parser import extract_text_from_file
+            doc_content = extract_text_from_file(file.filename, file_content)
+            doc_filename = file.filename
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"文件解析失败: {str(e)}")
+
+    # 合并输入
+    merged_input = ""
+    if has_text:
+        merged_input += f"【用户输入】\n{text.strip()}\n\n"
+    if doc_content:
+        if len(doc_content) > 10000:
+            doc_content = doc_content[:10000] + "\n[...文档内容过长已截断...]"
+        merged_input += f"【文档：{doc_filename}】\n{doc_content}"
+
+    if not merged_input.strip():
+        raise HTTPException(status_code=400, detail="未能获取到有效内容")
+
+    # 查询知识库获取参考用例格式
+    rag_context = ""
+    try:
+        from utils.knowledge_enhancer import search_rag_knowledge
+        rag_result = await search_rag_knowledge(f"需求文档 测试用例 {title or ''}")
+        if rag_result:
+            rag_context = f"\n\n## 知识库参考信息\n{rag_result[:3000]}"
+    except Exception as e:
+        logger.warning(f"RAG检索失败（不影响功能）: {e}")
+
+    from config.settings import llm
+
+    prompt = f"""你是一位资深的软件需求分析师和测试专家。请对以下输入内容进行全面分析和优化。
+
+## 输入内容
+{f'**标题**: {title}' if title and title.strip() else '（未提供标题，请根据内容自动生成）'}
+{merged_input}
+{rag_context}
+
+## 任务
+1. **需求总结**：用2-3句话概括这份需求文档的核心内容
+2. **标题优化**：给出简洁、准确的需求标题（不超过100字符）
+3. **需求规范化**：将原始内容整理为标准化需求描述，包括：
+   - 功能概述
+   - 用户场景
+   - 功能细节（具体功能点列表）
+   - 输入输出要求
+   - 边界条件与约束
+4. **验收标准**：列出明确的验收标准
+5. **风险提示**：指出可能的风险点
+
+## 重要约束
+- 严禁编造原文中未提及的功能需求
+- 可以做合理推断和补充，但不能改变原意
+- 需求描述应该结构化、可测试
+
+## 输出格式（严格JSON，不要markdown标记）
+{{
+    "requirement_summary": "需求文档核心内容概述（2-3句话）",
+    "optimized_title": "优化后的标题",
+    "optimized_description": "优化后的完整描述（使用markdown格式）",
+    "acceptance_criteria": ["验收标准1", "验收标准2"],
+    "risks": ["风险点1", "风险点2"],
+    "optimization_summary": "优化说明",
+    "test_points": ["测试点1", "测试点2", "测试点3"]
+}}"""
+
+    async def generate():
+        try:
+            yield f"data: {json.dumps({'type': 'progress', 'message': '正在分析需求文档...', 'progress': 10}, ensure_ascii=False)}\n\n"
+
+            full_content = ""
+            async for chunk in llm.astream(prompt):
+                if chunk.content:
+                    full_content += chunk.content
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk.content}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': '分析完成，正在解析结果...', 'progress': 90}, ensure_ascii=False)}\n\n"
+
+            # 解析JSON
+            clean = full_content.strip()
+            if clean.startswith("```json"):
+                clean = clean[7:]
+            if clean.startswith("```"):
+                clean = clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            clean = clean.strip()
+
+            json_match = re.search(r'\{[\s\S]*\}', clean)
+            if json_match:
+                try:
+                    result = json.loads(json_match.group())
+                    yield f"data: {json.dumps({'type': 'result', 'data': result}, ensure_ascii=False)}\n\n"
+                except json.JSONDecodeError:
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'AI返回格式解析失败'}, ensure_ascii=False)}\n\n"
+            else:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'AI返回格式解析失败'}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'type': 'done', 'progress': 100})}\n\n"
+
+        except Exception as e:
+            logger.error(f"AI优化文档流式输出失败: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
 
 
 @router.post("/{project_id}/ai_optimize_text", summary="AI优化任意文本为规范需求")

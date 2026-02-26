@@ -805,6 +805,24 @@ const handleCancel = async () => {
 
 onMounted(async () => {
   await loadModules()
+
+  // 检查是否有来自「AI优化需求」页面的转入数据
+  const transferJson = sessionStorage.getItem('ai_optimize_transfer')
+  if (transferJson) {
+    try {
+      const transfer = JSON.parse(transferJson)
+      if (transfer.title) createForm.title = transfer.title
+      if (transfer.description) createForm.description = transfer.description
+      if (transfer.priority) createForm.priority = transfer.priority
+      // 同时填充输入区域以便直接生成XMind
+      if (transfer.description) inputText.value = transfer.description
+      ElMessage.success('已导入AI优化后的需求内容')
+    } catch (e) {
+      console.error('解析转入数据失败:', e)
+    } finally {
+      sessionStorage.removeItem('ai_optimize_transfer')
+    }
+  }
 })
 </script>
 

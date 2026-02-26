@@ -94,10 +94,13 @@ def _format_steps_from_json(test_steps) -> str:
 
 
 def _build_case_topic(case: Dict, settings: Dict) -> Dict:
-    """构建单个用例的 XMind 主题节点"""
+    """
+    构建单个用例的 XMind 主题节点
+    结构：测试标题 → [前置条件, 测试步骤, 预期结果]（平级子节点）
+    """
     show_priority = settings.get('show_priority', True)
     show_case_id = settings.get('show_case_id', False)
-    show_node_labels = settings.get('show_node_labels', False)
+    show_node_labels = settings.get('show_node_labels', True)
 
     case_title_parts = []
 
@@ -115,13 +118,14 @@ def _build_case_topic(case: Dict, settings: Dict) -> Dict:
 
     case_title = ' '.join(case_title_parts)
 
+    # 前置条件、测试步骤、预期结果作为平级子节点
     node_definitions = [
         ("preconditions", "前置条件"),
         ("test_steps", "测试步骤"),
         ("expected_result", "预期结果"),
     ]
 
-    nodes = []
+    children_nodes = []
     for field_key, label in node_definitions:
         raw_value = case.get(field_key, '')
 
@@ -135,19 +139,14 @@ def _build_case_topic(case: Dict, settings: Dict) -> Dict:
 
         content = _format_numbered_list(text)
 
-        if show_node_labels:
-            content = f"{label}：{content}"
+        # 始终添加标签前缀，方便识别节点类型
+        content = f"{label}：{content}"
 
-        nodes.append({
+        children_nodes.append({
             "id": _generate_id(),
             "title": content,
             "class": "topic"
         })
-
-    for i in range(len(nodes) - 1, 0, -1):
-        nodes[i - 1]["children"] = {"attached": [nodes[i]]}
-
-    children = [nodes[0]] if nodes else []
 
     case_topic = {
         "id": _generate_id(),
@@ -155,8 +154,8 @@ def _build_case_topic(case: Dict, settings: Dict) -> Dict:
         "class": "topic"
     }
 
-    if children:
-        case_topic["children"] = {"attached": children}
+    if children_nodes:
+        case_topic["children"] = {"attached": children_nodes}
 
     return case_topic
 
@@ -179,12 +178,12 @@ def generate_xmind_content(
     # 根节点直接使用需求标题
     root_title = requirement_title
 
-    # 如果提供了场景分组，按场景→用例构建三级结构
+    # 按场景→用例构建三级结构：测试点 → 测试标题 → [前置条件, 测试步骤, 预期结果]
     if scenario_groups:
         scenario_topics = []
         for scenario_name, cases in scenario_groups.items():
             case_topics = [_build_case_topic(c, settings) for c in cases]
-            # 场景名称应用前后缀
+            # 场景名称应用前后缀（作为"测试点"）
             display_name = f"{scenario_prefix}{scenario_name}{scenario_suffix}" if (scenario_prefix or scenario_suffix) else scenario_name
             scenario_topic = {
                 "id": _generate_id(),
