@@ -8,12 +8,12 @@ services:
     container_name: py_mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     environment:
-      MYSQL_ROOT_PASSWORD: 123456py
-      MYSQL_DATABASE: fastapi
+      MYSQL_ROOT_PASSWORD: ${DATA_BASE_PASSWORD:-123456py}
+      MYSQL_DATABASE: ${DATA_BASE_NAME:-fastapi}
     volumes:
       - mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p123456py"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DATA_BASE_PASSWORD:-123456py}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,23 +27,8 @@ services:
     image: py_backend
     container_name: py_backend
     restart: always
-    environment:
-      - DATA_BASE_HOST=mysql
-      - DATA_BASE_PORT=3306
-      - DATA_BASE_USER=root
-      - DATA_BASE_PASSWORD=123456py
-      - DATA_BASE_NAME=fastapi
-      - SECRET_KEY=ai-test-prod-secret-key-change-me
-      - ALGORITHM=HS256
-      - ACCESS_TOKEN_EXPIRE_MINUTES=4320
-      - REFRESH_TOKEN_EXPIRE_DAYS=7
-      - LLM_MODEL=bedrock-claude-4-sonnet
-      - BASE_URL=https://litellm.shoplazza.site
-      - API_KEY=sk-shoplazza-Cluade-0819
-      - FEISHU_APP_ID=cli_a916d2554038dcb3
-      - FEISHU_APP_SECRET=lXP7VcwRiIoCO4MNXy68WdJLXPHDBFG4
-      - FEISHU_PROJECT_KEY=research__development
-      - FEISHU_MCP_KEY=m-42d1d9e6-efdb-488a-8509-87facc5f43e2
+    env_file:
+      - .env
     volumes:
       - backend_logs:/app/logs
 
