@@ -10,13 +10,15 @@ import re
 import asyncio
 import logging
 import traceback
-from .models import RequirementDoc, FunctionalCase, FunctionalCaseSet
+from .models import RequirementDoc, FunctionalCase, FunctionalCaseSet, TestPointSet, TestPoint
 from .schemas import (RequirementCreateRequest, RequirementResponse, RequirementUpdateRequest, RequirementDetailItem,
                       RequirementDetailListResponse, RequirementReviewRequest,
     FunctionalCaseSimple, FunctionalCaseListResponse, FunctionalCaseCreateRequest,
     FunctionalCaseUpdateRequest, FunctionalCaseResponse, FunctionalCaseReviewRequest,
     FunctionalCaseSetSimple, FunctionalCaseSetListResponse, FunctionalCaseSetDetailResponse,
-    FunctionalCaseSetCreateRequest, FunctionalCaseSetUpdateRequest, ScenarioCaseGroup)
+    FunctionalCaseSetCreateRequest, FunctionalCaseSetUpdateRequest, ScenarioCaseGroup,
+    TestPointSimple, TestPointSetSimple, TestPointSetListResponse, TestPointSetDetailResponse,
+    TestPointSetUpdateRequest)
 from service.user.models import User
 from service.project.models import Project, ProjectModule
 from utils.permissions import verify_admin_or_project_owner, verify_admin_or_project_member, \
@@ -1383,8 +1385,6 @@ async def extract_requirement_from_document(
 
         # ===== URL模式 =====
         elif has_url:
-            from utils.parser.requirement_document_parser import extract_text_from_url
-
             if not url.startswith(('http://', 'https://')):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1392,7 +1392,13 @@ async def extract_requirement_from_document(
                 )
 
             try:
-                extracted_text = extract_text_from_url(url)
+                # 飞书文档链接：通过飞书 MCP API 获取内容
+                from mcp_tools.feishu_doc_tools import is_feishu_url, get_feishu_doc_content
+                if is_feishu_url(url):
+                    extracted_text = await get_feishu_doc_content(url)
+                else:
+                    from utils.parser.requirement_document_parser import extract_text_from_url
+                    extracted_text = extract_text_from_url(url)
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1517,12 +1523,16 @@ async def extract_requirement_stream(
                     except Exception as e:
                         all_text_parts.append(f"【文档解析失败：{f.filename}】错误: {str(e)}")
 
-    # 3. URL
+    # 3. URL（支持飞书文档链接）
     if has_url:
         try:
-            from utils.parser.requirement_document_parser import extract_text_from_url
             if url.startswith(('http://', 'https://')):
-                url_text = extract_text_from_url(url)
+                from mcp_tools.feishu_doc_tools import is_feishu_url, get_feishu_doc_content
+                if is_feishu_url(url):
+                    url_text = await get_feishu_doc_content(url)
+                else:
+                    from utils.parser.requirement_document_parser import extract_text_from_url
+                    url_text = extract_text_from_url(url)
                 if url_text and url_text.strip():
                     if len(url_text) > 6000:
                         url_text = url_text[:6000] + "\n[...链接内容过长已截断...]"
@@ -1797,9 +1807,13 @@ async def doc_to_xmind_stream(
 
     if has_url:
         try:
-            from utils.parser.requirement_document_parser import extract_text_from_url
             if url.startswith(('http://', 'https://')):
-                url_text = extract_text_from_url(url)
+                from mcp_tools.feishu_doc_tools import is_feishu_url, get_feishu_doc_content
+                if is_feishu_url(url):
+                    url_text = await get_feishu_doc_content(url)
+                else:
+                    from utils.parser.requirement_document_parser import extract_text_from_url
+                    url_text = extract_text_from_url(url)
                 if url_text and url_text.strip():
                     if len(url_text) > 8000:
                         url_text = url_text[:8000] + "\n[...链接内容过长已截断...]"
@@ -1829,48 +1843,52 @@ async def doc_to_xmind_stream(
         logger.warning(f"知识库检索失败（不影响生成）: {e}")
 
     # ---- 构建一次性生成用例的 Prompt ----
-    case_gen_prompt = f"""你是一位资深测试工程师。请根据以下需求内容，直接生成完整的、按测试点（测试场景）分组的功能测试用例。
+    case_gen_prompt = f"""你是资深测试架构师，擅长支付/金融系统测试。以用户提供的文档/图片为核心依据，按业务含义组织用例，不套用固定分类。
 {rag_reference}
 
 ## 核心要求
-1. 必须按"测试点"分组输出，每个测试点包含多个用例
-2. 覆盖正向验证、边界测试、异常处理三类测试点
-3. 用例要全面、详细、可执行
-4. 测试点名称简洁，能一眼看出验证的功能点
+1. 必须按"测试分类"分组输出，每个分类包含多个用例
+2. 覆盖：正常流程 + 边界值 + 异常场景
+3. 图片/文档中每个关键节点都要有对应用例
+4. 测试分类名称简洁，按业务场景灵活命名
 5. 如果知识库参考中有相关用例，请学习其覆盖思路和写法风格
 
-## XMind层级结构说明
-生成的用例将以如下 XMind 层级展示：
-  需求标题（根节点）
-    └── 测试点（场景分组）
-         └── 测试标题（用例名称）
-              ├── 前置条件
-              ├── 测试步骤
-              └── 预期结果
+## XMind 层级结构（生成的用例将映射为此结构）
+  功能模块名称（根节点）
+    └── 测试分类（scenario，按业务场景灵活命名）
+         └── 模块名-场景描述（case_name，用例标题）
+              ├── 前置条件（preconditions）
+              ├── 测试步骤（test_steps）
+              └── 预期结果（expected_result）
 
 ## 输出格式（严格JSON，不要markdown标记）
 [
   {{
-    "scenario": "测试点名称",
+    "scenario": "测试分类名称（按业务场景灵活命名，如：功能验证、账户动账逻辑、资金流转、业务流程、参数校验、异常场景、状态流转、UI）",
     "cases": [
       {{
-        "case_name": "用例标题",
+        "case_name": "模块名-场景描述（标题中有并列动作时加逗号断句，如：商家基本户扣款，退款中间户到账）",
         "priority": "P0/P1/P2/P3",
-        "preconditions": "前置条件（环境、数据、用户状态等）",
+        "preconditions": "前置条件（资金类场景必须写明各账户初始余额）",
         "test_steps": "详细测试步骤（多步骤用换行分隔，如：\\n1.打开页面\\n2.输入数据\\n3.点击提交）",
-        "expected_result": "预期结果（明确可验证的结果描述）"
+        "expected_result": "预期结果（写明余额变化量、状态码等可量化指标；资金类体现资金守恒）"
       }}
     ]
   }}
 ]
 
-## 用例质量标准
-- P0: 核心功能主流程，必须通过
-- P1: 重要分支流程和关键边界
-- P2: 一般性边界和异常
-- P3: 极端情况和低频场景
-- 每个测试点至少2个用例，建议3-5个
-- 前置条件必须写清楚环境和数据准备
+## 分类规则
+- scenario 按业务场景灵活命名，常用分类：功能验证、账户动账逻辑、资金流转、业务流程、参数校验、异常场景、状态流转、UI
+- 异常订单（如资金进入 psp-develop）是正常业务分支 → 归入「账户动账逻辑」，不是异常场景
+- 「异常场景」仅限：余额不足、渠道故障、并发冲突、网络超时、重复请求
+
+## 用例设计原则
+- P0: 核心功能主流程，必须通过  P1: 重要分支流程和关键边界  P2: 一般边界和异常  P3: 极端情况和低频场景
+- 每个测试分类至少 2 个用例，建议 3-5 个
+- 前置条件：资金类场景必须写明各账户初始余额
+- 预期结果：写明余额变化量、状态码等可量化指标；资金类用例体现资金守恒（扣了多少、加了多少、哪些不变）
+- 相似用例合并：同类参数校验（如多个必填字段缺失）合并为一条，用步骤①②③枚举，避免重复冗余
+- 难以自动化测试的用例在 case_name 末尾标注「⚠️难实现」，如：并发锁、幂等重试、月结周期触发
 - 测试步骤必须具体可操作，不能笼统
 - 预期结果必须明确可验证"""
 
@@ -1995,7 +2013,7 @@ async def doc_to_xmind_stream(
                 requirement_title=root_title,
                 template_settings={
                     "show_priority": True,
-                    "show_case_id": True,
+                    "show_case_id": False,
                     "show_node_labels": True,
                     "scenario_prefix": "",
                     "scenario_suffix": "",
@@ -2068,7 +2086,7 @@ async def download_xmind_from_cases(
         requirement_title=title,
         template_settings={
             "show_priority": True,
-            "show_case_id": True,
+            "show_case_id": False,
             "show_node_labels": True,
             "scenario_prefix": "",
             "scenario_suffix": "",
@@ -2503,3 +2521,914 @@ async def apply_ai_optimization(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"应用AI优化结果失败: {str(e)}"
         )
+
+
+@router.post("/{project_id}/ai_generate_testpoints_stream", summary="AI生成测试点并存储到用例集（流式）")
+async def ai_generate_testpoints_stream(
+        project_id: int,
+        text: Optional[str] = Form(None, description="直接输入的需求文本"),
+        files: list[UploadFile] = File(default=[], description="上传的文件（文档/图片）"),
+        case_set_name: Optional[str] = Form(None, description="用例集名称（可选，默认自动生成）"),
+        knowledge_doc_ids: Optional[str] = Form(None, description="知识库文档ID列表，逗号分隔"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    AI生成测试点并自动存储到功能用例集。
+    流程：解析输入 → AI生成测试点+用例 → 存储到用例集 → SSE流式返回进度+结果。
+    """
+    project, current_user = project_user
+
+    has_text = text and text.strip()
+    has_files = files and len(files) > 0 and any(f.filename for f in files)
+    has_knowledge_docs = knowledge_doc_ids and knowledge_doc_ids.strip()
+
+    if not has_text and not has_files and not has_knowledge_docs:
+        raise HTTPException(status_code=400, detail="请输入文本、上传文件或选择知识库文档")
+
+    import base64
+    import os
+    from langchain_core.messages import HumanMessage
+
+    all_text_parts = []
+    image_data_list = []
+
+    if has_text:
+        all_text_parts.append(f"【用户输入】\n{text.strip()}")
+
+    if has_files:
+        for f in files:
+            if not f.filename:
+                continue
+            fname = f.filename.lower()
+            ftype = f.content_type or ""
+            file_content = await f.read()
+            if not file_content:
+                continue
+
+            if ftype.startswith("image/") or fname.endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
+                if len(file_content) <= 10 * 1024 * 1024:
+                    b64 = base64.b64encode(file_content).decode('utf-8')
+                    ct = ftype if ftype else "image/png"
+                    image_data_list.append((b64, ct, f.filename))
+            else:
+                ext = os.path.splitext(f.filename)[1].lower()
+                doc_exts = {'.pdf', '.docx', '.doc', '.txt', '.md'}
+                if ext in doc_exts:
+                    try:
+                        from utils.parser.requirement_document_parser import extract_text_from_file
+                        doc_text = extract_text_from_file(f.filename, file_content)
+                        if doc_text and doc_text.strip():
+                            if len(doc_text) > 8000:
+                                doc_text = doc_text[:8000] + "\n[...文档内容过长已截断...]"
+                            all_text_parts.append(f"【文档：{f.filename}】\n{doc_text}")
+                    except Exception as e:
+                        all_text_parts.append(f"【文档解析失败：{f.filename}】{str(e)}")
+
+    if has_knowledge_docs:
+        try:
+            from service.knowledge.models import KnowledgeDocument
+            doc_id_list = [int(x.strip()) for x in knowledge_doc_ids.split(',') if x.strip().isdigit()]
+            if doc_id_list:
+                kb_docs = await KnowledgeDocument.filter(
+                    id__in=doc_id_list,
+                    project_id=project_id,
+                    status="completed"
+                ).all()
+                for kb_doc in kb_docs:
+                    if kb_doc.content_preview and kb_doc.content_preview.strip():
+                        all_text_parts.append(f"【知识库文档：{kb_doc.title}】\n{kb_doc.content_preview}")
+        except Exception as e:
+            logger.warning(f"知识库文档内容获取失败（不影响生成）: {e}")
+
+    merged_text = "\n\n---\n\n".join(all_text_parts) if all_text_parts else ""
+
+    from config.settings import llm
+
+    rag_reference = ""
+    try:
+        from utils.knowledge_enhancer import search_rag_knowledge, get_case_set_knowledge
+        search_query = text.strip()[:200] if has_text and text.strip() else "测试用例 功能测试"
+        rag_result = await search_rag_knowledge(search_query)
+        if rag_result:
+            rag_reference += f"\n## 知识库参考用例\n{rag_result[:4000]}\n"
+        case_set_ref = await get_case_set_knowledge(project_id)
+        if case_set_ref:
+            rag_reference += f"\n## 历史用例集参考\n{case_set_ref[:2000]}\n"
+    except Exception as e:
+        logger.warning(f"知识库检索失败（不影响生成）: {e}")
+
+    case_gen_prompt = f"""你是一位资深测试工程师。请根据以下需求内容，提取完整的测试点列表。
+{rag_reference}
+
+## 核心要求
+1. 覆盖正向验证、边界测试、异常处理三类测试点
+2. 测试点名称简洁，能一眼看出验证的功能点
+3. 分类标注每个测试点的类型
+4. 要全面覆盖需求中的所有功能场景
+5. 根据需求文档内容，总结一个简洁精准的测试点集名称（10-30字），能体现被测功能的核心内容
+
+## 输出格式（严格JSON，不要markdown标记）
+{{
+  "title": "测试点集名称（如：用户注册登录功能测试点、订单支付流程测试点）",
+  "points": [
+    {{
+      "scenario": "测试点名称（简洁描述验证的功能点）",
+      "type": "正向验证/边界测试/异常处理"
+    }}
+  ]
+}}
+
+## 测试点提取标准
+- 正向验证：核心功能的正常使用场景
+- 边界测试：边界值、极限条件、特殊输入
+- 异常处理：错误输入、网络异常、权限不足等
+- 每个功能模块至少提取3-5个测试点
+- 确保测试点之间不重复、不遗漏
+- title字段必须根据需求内容总结，不能直接使用文件名"""
+
+    content_blocks = []
+    if merged_text and image_data_list:
+        content_blocks.append({"type": "text", "text": f"{case_gen_prompt}\n\n## 需求文档内容\n{merged_text}\n\n## 以下图片也是需求的一部分，请识别图中文字后一并提取测试点："})
+        for b64, ct, fname in image_data_list:
+            content_blocks.append({"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}"}})
+    elif image_data_list:
+        content_blocks.append({"type": "text", "text": f"{case_gen_prompt}\n\n请识别以下图片中的需求内容，然后提取测试点："})
+        for b64, ct, fname in image_data_list:
+            content_blocks.append({"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}"}})
+    elif merged_text:
+        content_blocks.append({"type": "text", "text": f"{case_gen_prompt}\n\n## 需求文档内容\n{merged_text}"})
+    else:
+        raise HTTPException(status_code=400, detail="未能获取到任何有效内容")
+
+    message = HumanMessage(content=content_blocks)
+
+    title_hint = case_set_name or ""
+    if not title_hint:
+        if has_text and text.strip():
+            title_hint = text.strip()[:50]
+        elif all_text_parts:
+            for p in all_text_parts:
+                if "】" in p:
+                    title_hint = p.split("】")[0].replace("【", "").replace("文档：", "")[:50]
+                    break
+        if not title_hint:
+            title_hint = "AI生成测试点"
+
+    async def generate():
+        try:
+            yield f"data: {json.dumps({'type': 'progress', 'message': '正在解析输入内容...', 'progress': 5}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'message': 'AI 正在生成测试点和用例...', 'progress': 15}, ensure_ascii=False)}\n\n"
+
+            full_content = ""
+            chunk_count = 0
+            async for chunk in llm.astream([message]):
+                if chunk.content:
+                    full_content += chunk.content
+                    chunk_count += 1
+                    if chunk_count % 10 == 0:
+                        progress = min(15 + int(chunk_count * 0.5), 70)
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk.content, 'progress': progress}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': 'AI生成完成，正在解析数据...', 'progress': 75}, ensure_ascii=False)}\n\n"
+
+            clean = full_content.strip()
+            if clean.startswith("```json"):
+                clean = clean[7:]
+            if clean.startswith("```"):
+                clean = clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            clean = clean.strip()
+
+            ai_title = ""
+            scenarios = []
+
+            obj_match = re.search(r'\{[\s\S]*\}', clean)
+            if obj_match:
+                try:
+                    parsed = json.loads(obj_match.group())
+                    if isinstance(parsed, dict) and "points" in parsed:
+                        ai_title = parsed.get("title", "")
+                        scenarios = parsed.get("points", [])
+                    elif isinstance(parsed, dict) and "scenario" in parsed:
+                        scenarios = [parsed]
+                except json.JSONDecodeError:
+                    pass
+
+            if not scenarios:
+                arr_match = re.search(r'\[[\s\S]*\]', clean)
+                if arr_match:
+                    try:
+                        scenarios = json.loads(arr_match.group())
+                    except json.JSONDecodeError:
+                        pass
+
+            if not scenarios:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'AI未返回有效数据，请检查输入内容后重试'}, ensure_ascii=False)}\n\n"
+                return
+
+            total_scenarios = len(scenarios)
+
+            final_name = ai_title.strip() if ai_title.strip() else title_hint
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'成功生成 {total_scenarios} 个测试点，正在保存...', 'progress': 80}, ensure_ascii=False)}\n\n"
+
+            tp_set = await TestPointSet.create(
+                name=final_name,
+                description=f"由AI自动生成，共{total_scenarios}个测试点",
+                point_count=total_scenarios,
+                project_id=project_id,
+                creator_id=current_user.id,
+            )
+
+            points_data = []
+            for idx, s in enumerate(scenarios):
+                scenario_name = s.get("scenario", f"测试点{idx + 1}")
+                tp = await TestPoint.create(
+                    name=scenario_name,
+                    point_type=s.get("type", None),
+                    sort_order=idx,
+                    test_point_set_id=tp_set.id,
+                )
+                points_data.append({
+                    "id": tp.id,
+                    "name": scenario_name,
+                    "point_type": tp.point_type,
+                    "sort_order": idx,
+                    "cases": s.get("cases", []),
+                })
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'已保存 {total_scenarios} 个测试点到测试点集', 'progress': 95}, ensure_ascii=False)}\n\n"
+
+            result_data = {
+                "test_point_set_id": tp_set.id,
+                "test_point_set_name": tp_set.name,
+                "total_points": total_scenarios,
+                "points": points_data,
+            }
+            yield f"data: {json.dumps({'type': 'result', 'data': result_data}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'progress': 100})}\n\n"
+
+        except Exception as e:
+            logger.error(f"AI生成测试点失败: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
+
+
+# ==================== 测试点集 CRUD ====================
+
+@router.get("/{project_id}/test_point_sets", response_model=TestPointSetListResponse, summary="获取测试点集列表")
+async def get_test_point_sets(
+        project_id: int,
+        keyword: Optional[str] = None,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    project, current_user = project_user
+    try:
+        query_filters = {"project_id": project_id}
+        qs = TestPointSet.filter(**query_filters)
+        if keyword:
+            qs = qs.filter(name__icontains=keyword)
+        tp_sets = await qs.order_by('-created_at').all()
+
+        result = []
+        for tps in tp_sets:
+            creator_name = None
+            if tps.creator_id:
+                u = await User.get_or_none(id=tps.creator_id)
+                if u:
+                    creator_name = u.real_name or u.username
+            actual_count = await TestPoint.filter(test_point_set_id=tps.id).count()
+            result.append(TestPointSetSimple(
+                id=tps.id, name=tps.name, description=tps.description,
+                point_count=actual_count, creator_name=creator_name,
+                created_at=tps.created_at, updated_at=tps.updated_at,
+            ))
+        return TestPointSetListResponse(test_point_sets=result, total=len(result))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{project_id}/test_point_sets/{tp_set_id}", response_model=TestPointSetDetailResponse, summary="获取测试点集详情")
+async def get_test_point_set_detail(
+        project_id: int,
+        tp_set_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    project, current_user = project_user
+    tps = await TestPointSet.get_or_none(id=tp_set_id, project_id=project_id)
+    if not tps:
+        raise HTTPException(status_code=404, detail="测试点集不存在")
+
+    creator_name = None
+    if tps.creator_id:
+        u = await User.get_or_none(id=tps.creator_id)
+        if u:
+            creator_name = u.real_name or u.username
+
+    points = await TestPoint.filter(test_point_set_id=tps.id).order_by('sort_order').all()
+    points_data = [TestPointSimple(id=p.id, name=p.name, point_type=p.point_type, sort_order=p.sort_order) for p in points]
+
+    return TestPointSetDetailResponse(
+        id=tps.id, name=tps.name, description=tps.description,
+        point_count=len(points_data), creator_name=creator_name,
+        created_at=tps.created_at, updated_at=tps.updated_at,
+        points=points_data,
+    )
+
+
+@router.put("/{project_id}/test_point_sets/{tp_set_id}", summary="更新测试点集")
+async def update_test_point_set(
+        project_id: int,
+        tp_set_id: int,
+        data: TestPointSetUpdateRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    project, current_user = project_user
+    tps = await TestPointSet.get_or_none(id=tp_set_id, project_id=project_id)
+    if not tps:
+        raise HTTPException(status_code=404, detail="测试点集不存在")
+    if data.name is not None:
+        tps.name = data.name.strip()
+    if data.description is not None:
+        tps.description = data.description
+    await tps.save()
+    return {"message": "更新成功", "id": tps.id, "name": tps.name}
+
+
+@router.delete("/{project_id}/test_point_sets/{tp_set_id}", summary="删除测试点集")
+async def delete_test_point_set(
+        project_id: int,
+        tp_set_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    project, current_user = project_user
+    tps = await TestPointSet.get_or_none(id=tp_set_id, project_id=project_id)
+    if not tps:
+        raise HTTPException(status_code=404, detail="测试点集不存在")
+    await TestPoint.filter(test_point_set_id=tps.id).delete()
+    await tps.delete()
+    return {"message": "测试点集已删除"}
+
+
+@router.post("/{project_id}/test_point_sets/{tp_set_id}/generate_cases", summary="根据测试点集生成用例集")
+async def generate_cases_from_testpoints(
+        project_id: int,
+        tp_set_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    根据已有测试点集，AI生成详细的测试用例并保存到用例集。
+    SSE流式返回进度和结果。
+    """
+    project, current_user = project_user
+
+    tps = await TestPointSet.get_or_none(id=tp_set_id, project_id=project_id)
+    if not tps:
+        raise HTTPException(status_code=404, detail="测试点集不存在")
+
+    points = await TestPoint.filter(test_point_set_id=tps.id).order_by('sort_order').all()
+    if not points:
+        raise HTTPException(status_code=400, detail="测试点集为空")
+
+    from config.settings import llm
+    from langchain_core.messages import HumanMessage
+
+    points_text = "\n".join([f"{i+1}. {p.name}" + (f"（{p.point_type}）" if p.point_type else "") for i, p in enumerate(points)])
+
+    rag_reference = ""
+    try:
+        from utils.knowledge_enhancer import search_rag_knowledge, get_case_set_knowledge
+        rag_result = await search_rag_knowledge(tps.name[:200])
+        if rag_result:
+            rag_reference += f"\n## 知识库参考用例\n{rag_result[:4000]}\n"
+        case_set_ref = await get_case_set_knowledge(project_id)
+        if case_set_ref:
+            rag_reference += f"\n## 历史用例集参考\n{case_set_ref[:2000]}\n"
+    except Exception as e:
+        logger.warning(f"知识库检索失败（不影响生成）: {e}")
+
+    prompt = f"""你是资深测试架构师，擅长支付/金融系统测试。根据以下测试点列表，为每个测试点生成详细的测试用例。
+{rag_reference}
+
+## 测试点列表
+{points_text}
+
+## XMind 层级结构（生成的用例将映射为此结构）
+  项目名称（根节点）
+    └── module（模块/测试分类）
+         └── [P1][TC-0001] case_title（用例标题）
+              ├── 前置条件
+              │    ├── 1.条件A
+              │    └── 2.条件B
+              ├── 测试步骤
+              │    ├── 1.步骤A  →  预期：预期结果A
+              │    └── 2.步骤B  →  预期：预期结果B
+              └── 标签：核心功能, 支付模块
+
+## 输出格式（严格JSON，不要markdown标记）
+[
+  {{
+    "module": "模块/测试分类名称（按业务场景灵活命名，如：功能验证、账户动账逻辑、资金流转、参数校验、异常场景、状态流转）",
+    "cases": [
+      {{
+        "case_id": "TC-0001",
+        "case_title": "模块名-场景描述",
+        "priority": "P0/P1/P2/P3",
+        "tags": ["核心功能", "相关标签"],
+        "precondition": "前置条件1\\n前置条件2",
+        "test_steps": ["步骤1描述", "步骤2描述", "步骤3描述"],
+        "expected_results": ["步骤1的预期结果", "步骤2的预期结果", "步骤3的预期结果"]
+      }}
+    ]
+  }}
+]
+
+## 关键要求
+- test_steps 和 expected_results 必须是数组，且一一对应（第N个步骤对应第N个预期结果）
+- precondition 是字符串，多条用 \\n 分隔
+- tags 是字符串数组，标注用例特征（如：核心功能、冒烟测试、边界测试、异常场景等）
+- case_id 按 TC-0001, TC-0002 格式递增编号
+
+## 分类规则
+- module 按业务场景灵活命名，常用分类：功能验证、账户动账逻辑、资金流转、业务流程、参数校验、异常场景、状态流转、UI
+- 异常订单（如资金进入 psp-develop）是正常业务分支 → 归入「账户动账逻辑」，不是异常场景
+- 「异常场景」仅限：余额不足、渠道故障、并发冲突、网络超时、重复请求
+
+## 用例设计原则
+- 每个测试点至少生成 2-5 个用例，覆盖：正常流程 + 边界值 + 异常场景
+- P0: 核心功能主流程，必须通过  P1: 重要分支流程和关键边界  P2: 一般边界和异常  P3: 极端情况和低频场景
+- 前置条件：资金类场景必须写明各账户初始余额
+- 预期结果：写明余额变化量、状态码等可量化指标；资金类用例体现资金守恒
+- 相似用例合并，避免重复冗余
+- 前置条件、测试步骤、预期结果必须具体可操作，不能笼统"""
+
+    message = HumanMessage(content=prompt)
+
+    async def generate():
+        import base64
+        try:
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'正在根据 {len(points)} 个测试点生成用例（可能需要1-3分钟）...', 'progress': 5}, ensure_ascii=False)}\n\n"
+
+            full_content = ""
+            chunk_count = 0
+            batch_content = ""
+            async for chunk in llm.astream([message]):
+                if chunk.content:
+                    full_content += chunk.content
+                    batch_content += chunk.content
+                    chunk_count += 1
+                    if chunk_count % 5 == 0:
+                        progress = min(5 + int(chunk_count * 0.3), 70)
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': batch_content, 'progress': progress}, ensure_ascii=False)}\n\n"
+                        batch_content = ""
+
+            if batch_content:
+                yield f"data: {json.dumps({'type': 'chunk', 'content': batch_content, 'progress': 70}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': '生成完成，正在解析并保存...', 'progress': 75}, ensure_ascii=False)}\n\n"
+
+            clean = full_content.strip()
+            if clean.startswith("```json"):
+                clean = clean[7:]
+            if clean.startswith("```"):
+                clean = clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            clean = clean.strip()
+
+            json_match = re.search(r'\[[\s\S]*\]', clean)
+            scenarios = []
+            if json_match:
+                try:
+                    scenarios = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'AI返回的数据解析失败，请重试'}, ensure_ascii=False)}\n\n"
+                    return
+            else:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'AI未返回有效数据'}, ensure_ascii=False)}\n\n"
+                return
+
+            total_cases = sum(len(s.get("cases", [])) for s in scenarios)
+            total_scenarios = len(scenarios)
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'生成 {total_cases} 条用例，正在保存到用例集...', 'progress': 80}, ensure_ascii=False)}\n\n"
+
+            priority_map = {"P0": 1, "P1": 2, "P2": 3, "P3": 4}
+
+            case_set = await FunctionalCaseSet.create(
+                name=tps.name,
+                description=f"基于测试点集「{tps.name}」生成，共{total_scenarios}个场景、{total_cases}条用例",
+                case_count=total_cases,
+                scenario_count=total_scenarios,
+                project_id=project_id,
+                creator_id=current_user.id,
+            )
+
+            saved_count = 0
+            global_idx = 0
+            for s_idx, s in enumerate(scenarios):
+                scenario_name = s.get("module", s.get("scenario", "未分类场景"))
+                for c_idx, c in enumerate(s.get("cases", []), 1):
+                    global_idx += 1
+                    p_str = c.get("priority", "P2")
+                    p_val = priority_map.get(p_str, 3)
+
+                    raw_steps = c.get("test_steps", "")
+                    if isinstance(raw_steps, list):
+                        steps_json = [{"step": i + 1, "action": str(step)} for i, step in enumerate(raw_steps)]
+                    elif isinstance(raw_steps, str) and raw_steps.strip():
+                        steps_json = [{"step": i + 1, "action": line.strip()}
+                                      for i, line in enumerate(re.split(r'\n|(?<=[\u4e00-\u9fff\w])\s*(?=\d+[\.\)、])', raw_steps))
+                                      if line.strip()]
+                    else:
+                        steps_json = []
+
+                    raw_expected = c.get("expected_results", c.get("expected_result", ""))
+                    if isinstance(raw_expected, list):
+                        expected_text = "\n".join(str(e) for e in raw_expected)
+                    else:
+                        expected_text = str(raw_expected) if raw_expected else ""
+
+                    raw_pre = c.get("precondition", c.get("preconditions", ""))
+
+                    await FunctionalCase.create(
+                        case_no=c.get("case_id", f"TC-{global_idx:04d}"),
+                        case_name=c.get("case_title", c.get("case_name", f"用例{c_idx}")),
+                        priority=p_val,
+                        status="design",
+                        scenario=scenario_name,
+                        scenario_sort=c_idx,
+                        preconditions=raw_pre,
+                        test_steps=steps_json,
+                        expected_result=expected_text,
+                        case_set_id=case_set.id,
+                        creator_id=current_user.id,
+                    )
+                    saved_count += 1
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'已保存 {saved_count} 条用例，正在生成XMind文件...', 'progress': 90}, ensure_ascii=False)}\n\n"
+
+            from utils.xmind_generator import generate_xmind_file
+            xmind_scenario_groups = {}
+            xmind_global_idx = 0
+            for s in scenarios:
+                s_name = s.get("module", s.get("scenario", "未分类场景"))
+                x_cases = []
+                for c in s.get("cases", []):
+                    xmind_global_idx += 1
+                    p_str = c.get("priority", "P2")
+                    x_cases.append({
+                        "case_id": c.get("case_id", f"TC-{xmind_global_idx:04d}"),
+                        "case_name": c.get("case_title", c.get("case_name", f"用例{xmind_global_idx}")),
+                        "priority": priority_map.get(p_str, 3) if isinstance(p_str, str) else p_str,
+                        "precondition": c.get("precondition", c.get("preconditions", "")),
+                        "test_steps": c.get("test_steps", []),
+                        "expected_results": c.get("expected_results", c.get("expected_result", [])),
+                        "tags": c.get("tags", []),
+                    })
+                xmind_scenario_groups[s_name] = x_cases
+
+            xmind_bytes = generate_xmind_file(
+                requirement_title=tps.name,
+                template_settings={"show_priority": True, "show_case_id": False, "scenario_prefix": "", "scenario_suffix": ""},
+                scenario_groups=xmind_scenario_groups
+            )
+            xmind_b64 = base64.b64encode(xmind_bytes).decode('utf-8')
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': 'XMind文件生成完成！', 'progress': 95}, ensure_ascii=False)}\n\n"
+
+            result_data = {
+                "case_set_id": case_set.id,
+                "case_set_name": case_set.name,
+                "scenarios": scenarios,
+                "total_cases": total_cases,
+                "total_scenarios": total_scenarios,
+                "xmind_base64": xmind_b64,
+                "xmind_filename": f"{tps.name}_测试用例.xmind",
+            }
+            yield f"data: {json.dumps({'type': 'result', 'data': result_data}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'progress': 100})}\n\n"
+
+        except Exception as e:
+            logger.error(f"根据测试点生成用例失败: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
+
+
+@router.get("/{project_id}/case_sets/{case_set_id}/export_xmind", summary="根据用例集ID导出XMind文件")
+async def export_case_set_as_xmind(
+        project_id: int,
+        case_set_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """根据用例集中的用例，按场景分组生成XMind文件下载。"""
+    from utils.xmind_generator import generate_xmind_file
+    from urllib.parse import quote
+
+    case_set = await FunctionalCaseSet.get_or_none(id=case_set_id, project_id=project_id)
+    if not case_set:
+        raise HTTPException(status_code=404, detail="用例集不存在")
+
+    cases = await FunctionalCase.filter(case_set_id=case_set.id).order_by('scenario', 'scenario_sort').all()
+    if not cases:
+        raise HTTPException(status_code=400, detail="用例集中无用例")
+
+    scenario_groups = {}
+    for c in cases:
+        s_name = c.scenario or "未分类场景"
+        if s_name not in scenario_groups:
+            scenario_groups[s_name] = []
+
+        steps_raw = c.test_steps or ""
+        expected_raw = c.expected_result or ""
+        if isinstance(steps_raw, list):
+            steps_list = [s.get('action', s.get('step', str(s))) if isinstance(s, dict) else str(s) for s in steps_raw]
+        elif isinstance(steps_raw, str) and steps_raw.strip():
+            steps_list = [l.strip() for l in steps_raw.split('\n') if l.strip()]
+        else:
+            steps_list = []
+
+        if isinstance(expected_raw, list):
+            expected_list = [str(e) for e in expected_raw]
+        elif isinstance(expected_raw, str) and expected_raw.strip():
+            expected_list = [l.strip() for l in expected_raw.split('\n') if l.strip()]
+        else:
+            expected_list = []
+
+        scenario_groups[s_name].append({
+            "case_id": c.case_no or "",
+            "case_name": c.case_name,
+            "priority": c.priority,
+            "precondition": c.preconditions or "",
+            "test_steps": steps_list,
+            "expected_results": expected_list,
+        })
+
+    xmind_bytes = generate_xmind_file(
+        requirement_title=case_set.name,
+        template_settings={"show_priority": True, "show_case_id": False, "scenario_prefix": "", "scenario_suffix": ""},
+        scenario_groups=scenario_groups
+    )
+
+    safe_title = re.sub(r'[\\/:*?"<>|]', '_', case_set.name)[:50]
+    filename = f"{safe_title}_测试用例.xmind"
+    encoded_filename = quote(filename)
+
+    return Response(
+        content=xmind_bytes,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "Content-Type": "application/octet-stream",
+        }
+    )
+
+
+@router.post("/{project_id}/case_sets/{case_set_id}/ai_generate_xmind", summary="AI根据用例集测试点生成XMind测试用例")
+async def ai_generate_xmind_from_case_set(
+        project_id: int,
+        case_set_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    根据用例集关联的测试点集，调用AI生成详细的测试用例并返回XMind文件。
+    优先查找同名测试点集，若无则从用例集的用例名称中提取测试点。
+    SSE流式返回进度和结果。
+    """
+    project, current_user = project_user
+
+    cs = await FunctionalCaseSet.get_or_none(id=case_set_id, project_id=project_id)
+    if not cs:
+        raise HTTPException(status_code=404, detail="用例集不存在")
+
+    tp_set = await TestPointSet.get_or_none(name=cs.name, project_id=project_id)
+
+    points_text = ""
+    points_count = 0
+
+    if tp_set:
+        points = await TestPoint.filter(test_point_set_id=tp_set.id).order_by('sort_order').all()
+        if points:
+            points_text = "\n".join([
+                f"{i+1}. {p.name}" + (f"（{p.point_type}）" if p.point_type else "")
+                for i, p in enumerate(points)
+            ])
+            points_count = len(points)
+
+    if not points_text:
+        cases = await FunctionalCase.filter(case_set_id=case_set_id).order_by('scenario', 'scenario_sort').all()
+        if not cases:
+            raise HTTPException(status_code=400, detail="用例集中无用例，无法提取测试点")
+
+        scenario_map = {}
+        for c in cases:
+            s = c.scenario or "未分类"
+            if s not in scenario_map:
+                scenario_map[s] = []
+            scenario_map[s].append(c.case_name)
+
+        lines = []
+        idx = 1
+        for scenario_name, names in scenario_map.items():
+            for name in names:
+                lines.append(f"{idx}. [{scenario_name}] {name}")
+                idx += 1
+        points_text = "\n".join(lines)
+        points_count = idx - 1
+
+    from config.settings import llm
+    from langchain_core.messages import HumanMessage
+
+    rag_reference = ""
+    try:
+        from utils.knowledge_enhancer import search_rag_knowledge, get_case_set_knowledge
+        rag_result = await search_rag_knowledge(cs.name[:200])
+        if rag_result:
+            rag_reference += f"\n## 知识库参考用例\n{rag_result[:4000]}\n"
+        case_set_ref = await get_case_set_knowledge(project_id)
+        if case_set_ref:
+            rag_reference += f"\n## 历史用例集参考\n{case_set_ref[:2000]}\n"
+    except Exception as e:
+        logger.warning(f"知识库检索失败（不影响生成）: {e}")
+
+    prompt = f"""你是资深测试架构师，擅长支付/金融系统测试。根据以下测试点列表，为每个测试点生成详细的测试用例。
+{rag_reference}
+
+## 测试点列表
+{points_text}
+
+## XMind 层级结构（生成的用例将映射为此结构）
+  项目名称（根节点）
+    └── module（模块/测试分类）
+         └── [P1][TC-0001] case_title（用例标题）
+              ├── 前置条件
+              │    ├── 1.条件A
+              │    └── 2.条件B
+              ├── 测试步骤
+              │    ├── 1.步骤A  →  预期：预期结果A
+              │    └── 2.步骤B  →  预期：预期结果B
+              └── 标签：核心功能, 支付模块
+
+## 输出格式（严格JSON，不要markdown标记）
+[
+  {{
+    "module": "模块/测试分类名称（按业务场景灵活命名）",
+    "cases": [
+      {{
+        "case_id": "TC-0001",
+        "case_title": "用例标题",
+        "priority": "P0/P1/P2/P3",
+        "tags": ["核心功能", "相关标签"],
+        "precondition": "前置条件1\\n前置条件2\\n前置条件3",
+        "test_steps": ["步骤1", "步骤2", "步骤3"],
+        "expected_results": ["步骤1的预期结果", "步骤2的预期结果", "步骤3的预期结果"]
+      }}
+    ]
+  }}
+]
+
+## 关键要求
+- test_steps 和 expected_results 必须是数组，且一一对应（第N个步骤对应第N个预期结果）
+- precondition 是字符串，多条用 \\n 分隔
+- tags 是字符串数组，标注用例特征（如：核心功能、冒烟测试、边界测试、异常场景等）
+- case_id 按 TC-0001, TC-0002 格式递增编号
+- module 按业务场景灵活命名，常用分类：功能验证、账户动账逻辑、资金流转、参数校验、异常场景、状态流转
+
+## 用例设计原则
+- 每个测试点至少生成 2-5 个用例，覆盖：正常流程 + 边界值 + 异常场景
+- P0: 核心功能主流程  P1: 重要分支和关键边界  P2: 一般边界和异常  P3: 极端和低频场景
+- 前置条件：资金类场景必须写明各账户初始余额
+- 预期结果：写明余额变化量、状态码等可量化指标
+- 相似用例合并，避免重复冗余
+- 前置条件、测试步骤、预期结果必须具体可操作"""
+
+    message = HumanMessage(content=prompt)
+
+    async def generate():
+        import base64
+        import time
+        try:
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'正在根据 {points_count} 个测试点AI生成用例（可能需要1-3分钟）...', 'progress': 5}, ensure_ascii=False)}\n\n"
+
+            full_content = ""
+            chunk_count = 0
+            batch_content = ""
+            last_push_time = time.time()
+            async for chunk in llm.astream([message]):
+                if chunk.content:
+                    full_content += chunk.content
+                    batch_content += chunk.content
+                    chunk_count += 1
+                    now = time.time()
+                    if chunk_count % 3 == 0 or (now - last_push_time) >= 0.8:
+                        progress = min(8 + int(chunk_count * 0.5), 70)
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': batch_content, 'progress': progress}, ensure_ascii=False)}\n\n"
+                        batch_content = ""
+                        last_push_time = now
+
+            if batch_content:
+                yield f"data: {json.dumps({'type': 'chunk', 'content': batch_content, 'progress': 72}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': '生成完成，正在解析并构建XMind...', 'progress': 75}, ensure_ascii=False)}\n\n"
+
+            clean = full_content.strip()
+            if clean.startswith("```json"):
+                clean = clean[7:]
+            if clean.startswith("```"):
+                clean = clean[3:]
+            if clean.endswith("```"):
+                clean = clean[:-3]
+            clean = clean.strip()
+
+            json_match = re.search(r'\[[\s\S]*\]', clean)
+            ai_scenarios = []
+            if json_match:
+                try:
+                    ai_scenarios = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    yield f"data: {json.dumps({'type': 'error', 'message': 'AI返回的数据解析失败，请重试'}, ensure_ascii=False)}\n\n"
+                    return
+            else:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'AI未返回有效数据'}, ensure_ascii=False)}\n\n"
+                return
+
+            total_cases = sum(len(s.get("cases", [])) for s in ai_scenarios)
+            total_scenarios = len(ai_scenarios)
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'生成 {total_cases} 条用例，正在构建XMind文件...', 'progress': 85}, ensure_ascii=False)}\n\n"
+
+            priority_map = {"P0": 1, "P1": 2, "P2": 3, "P3": 4}
+
+            from utils.xmind_generator import generate_xmind_file
+            xmind_scenario_groups = {}
+            global_case_idx = 0
+            for s in ai_scenarios:
+                s_name = s.get("module", s.get("scenario", "未分类场景"))
+                x_cases = []
+                for c in s.get("cases", []):
+                    global_case_idx += 1
+                    p_str = c.get("priority", "P2")
+                    x_cases.append({
+                        "case_id": c.get("case_id", f"TC-{global_case_idx:04d}"),
+                        "case_name": c.get("case_title", c.get("case_name", f"用例{global_case_idx}")),
+                        "priority": priority_map.get(p_str, 3) if isinstance(p_str, str) else p_str,
+                        "precondition": c.get("precondition", c.get("preconditions", "")),
+                        "test_steps": c.get("test_steps", []),
+                        "expected_results": c.get("expected_results", c.get("expected_result", [])),
+                        "tags": c.get("tags", []),
+                    })
+                xmind_scenario_groups[s_name] = x_cases
+
+            xmind_bytes = generate_xmind_file(
+                requirement_title=cs.name,
+                template_settings={"show_priority": True, "show_case_id": False, "scenario_prefix": "", "scenario_suffix": ""},
+                scenario_groups=xmind_scenario_groups
+            )
+            xmind_b64 = base64.b64encode(xmind_bytes).decode('utf-8')
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': 'XMind文件生成完成！', 'progress': 95}, ensure_ascii=False)}\n\n"
+
+            result_data = {
+                "scenarios": ai_scenarios,
+                "total_cases": total_cases,
+                "total_scenarios": total_scenarios,
+                "xmind_base64": xmind_b64,
+                "xmind_filename": f"{cs.name}_AI测试用例.xmind",
+            }
+            yield f"data: {json.dumps({'type': 'result', 'data': result_data}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'progress': 100})}\n\n"
+
+        except Exception as e:
+            logger.error(f"AI生成XMind失败: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'生成失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )

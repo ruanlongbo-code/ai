@@ -133,6 +133,48 @@ class FunctionalCaseSetUpdateRequest(BaseModel):
     description: Optional[str] = Field(None, description="用例集描述")
 
 
+# ===== 测试点集 Schemas =====
+
+class TestPointSimple(BaseModel):
+    """测试点简要信息"""
+    id: int
+    name: str
+    point_type: Optional[str] = None
+    sort_order: int = 0
+
+class TestPointSetSimple(BaseModel):
+    """测试点集简要信息"""
+    id: int
+    name: str
+    description: Optional[str] = None
+    point_count: int = 0
+    creator_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+class TestPointSetListResponse(BaseModel):
+    """测试点集列表响应"""
+    test_point_sets: List[TestPointSetSimple]
+    total: int
+
+class TestPointSetUpdateRequest(BaseModel):
+    """测试点集更新请求"""
+    name: Optional[str] = Field(None, max_length=255, description="测试点集名称")
+    description: Optional[str] = Field(None, description="测试点集描述")
+
+
+class TestPointSetDetailResponse(BaseModel):
+    """测试点集详情响应（含测试点列表）"""
+    id: int
+    name: str
+    description: Optional[str] = None
+    point_count: int = 0
+    creator_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    points: List[TestPointSimple] = Field(default_factory=list)
+
+
 # ===== 用例 Schemas =====
 
 class FunctionalCaseSimple(BaseModel):

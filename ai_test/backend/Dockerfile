@@ -14,7 +14,7 @@ COPY requirements.txt .
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories && \
     apk update && \
     apk upgrade && \
-    apk add --no-cache tzdata mariadb-dev gcc libc-dev && \
+    apk add --no-cache tzdata mariadb-dev gcc libc-dev nodejs npm && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone
 

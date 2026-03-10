@@ -396,6 +396,64 @@ export const aiOptimizeDocStream = (projectId, formData) => {
 }
 
 /**
+ * AI生成测试点并存储到用例集（SSE流式）
+ * @param {number} projectId - 项目ID
+ * @param {FormData} formData - 包含 text, files, case_set_name
+ * @returns {Promise<Response>} fetch Response (SSE stream)
+ */
+export const aiGenerateTestpointsStream = (projectId, formData) => {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token')
+  return fetch(`${baseURL}/functional_test/${projectId}/ai_generate_testpoints_stream?project_id=${projectId}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    },
+    body: formData
+  })
+}
+
+// ===== 测试点集 API =====
+
+export const getTestPointSetList = (projectId, params = {}) => {
+  return request({
+    url: `/functional_test/${projectId}/test_point_sets`,
+    method: 'get',
+    params
+  })
+}
+
+export const getTestPointSetDetail = (projectId, tpSetId) => {
+  return request({
+    url: `/functional_test/${projectId}/test_point_sets/${tpSetId}`,
+    method: 'get',
+  })
+}
+
+export const deleteTestPointSet = (projectId, tpSetId) => {
+  return request({
+    url: `/functional_test/${projectId}/test_point_sets/${tpSetId}`,
+    method: 'delete',
+  })
+}
+
+/**
+ * 根据测试点集生成用例集（SSE流式）
+ */
+export const generateCasesFromTestpoints = (projectId, tpSetId, signal) => {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token')
+  return fetch(`${baseURL}/functional_test/${projectId}/test_point_sets/${tpSetId}/generate_cases?project_id=${projectId}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      'Content-Type': 'application/json',
+    },
+    signal,
+  })
+}
+
+/**
  * AI优化需求（SSE流式）
  * @param {number} projectId - 项目ID
  * @param {number} requirementId - 需求ID
@@ -510,5 +568,53 @@ export const deleteCaseSet = (projectId, caseSetId) => {
   return request({
     url: `/functional_test/${projectId}/case_sets/${caseSetId}`,
     method: 'delete'
+  })
+}
+
+/**
+ * 根据用例集ID导出XMind文件
+ * @param {number} projectId - 项目ID
+ * @param {number} caseSetId - 用例集ID
+ */
+export const exportCaseSetXmind = (projectId, caseSetId) => {
+  return request({
+    url: `/functional_test/${projectId}/case_sets/${caseSetId}/export_xmind`,
+    method: 'get',
+    responseType: 'blob',
+    timeout: 60000
+  })
+}
+
+/**
+ * AI根据用例集测试点生成XMind测试用例（SSE流式）
+ * @param {number} projectId - 项目ID
+ * @param {number} caseSetId - 用例集ID
+ * @param {AbortSignal} [signal] - 可选的取消信号
+ * @returns {Promise<Response>} fetch Response (SSE stream)
+ */
+export const aiGenerateXmindFromCaseSet = (projectId, caseSetId, signal) => {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token')
+  return fetch(`${baseURL}/functional_test/${projectId}/case_sets/${caseSetId}/ai_generate_xmind`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      'Content-Type': 'application/json',
+    },
+    signal,
+  })
+}
+
+/**
+ * 更新测试点集（名称等）
+ * @param {number} projectId - 项目ID
+ * @param {number} tpSetId - 测试点集ID
+ * @param {Object} data - { name, description }
+ */
+export const updateTestPointSet = (projectId, tpSetId, data) => {
+  return request({
+    url: `/functional_test/${projectId}/test_point_sets/${tpSetId}`,
+    method: 'put',
+    data
   })
 }

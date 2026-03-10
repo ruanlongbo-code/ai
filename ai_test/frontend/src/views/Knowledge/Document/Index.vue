@@ -6,6 +6,9 @@
         <span class="subtitle">上传业务文档、需求文档，构建项目知识库，提升AI生成测试用例的准确性</span>
       </div>
       <div class="header-actions">
+        <el-button type="primary" @click="showFeishuDialog">
+          <el-icon><Link /></el-icon>导入飞书文档
+        </el-button>
         <el-button type="primary" @click="showUploadTextDialog">
           <el-icon><EditPen /></el-icon>粘贴文本
         </el-button>
@@ -80,6 +83,43 @@
       />
     </div>
 
+    <!-- 飞书文档导入弹窗 -->
+    <el-dialog v-model="feishuDialogVisible" title="导入飞书文档" width="560px" :close-on-click-modal="false">
+      <el-form :model="feishuForm" label-width="80px">
+        <el-form-item label="文档链接" required>
+          <el-input
+            v-model="feishuForm.url"
+            placeholder="粘贴飞书文档链接，如 https://xxx.feishu.cn/docx/..."
+            clearable
+            @input="validateFeishuUrl"
+          />
+          <div v-if="feishuForm.url && !feishuUrlValid" class="url-error-tip">
+            请输入有效的飞书文档链接（支持 feishu.cn / larksuite.com 下的 docx / docs / wiki）
+          </div>
+          <div v-if="feishuForm.url && feishuUrlValid" class="url-ok-tip">
+            ✅ 已识别为飞书文档，点击确认即可自动获取内容
+          </div>
+        </el-form-item>
+        <el-form-item label="文档标题">
+          <el-input
+            v-model="feishuForm.title"
+            placeholder="留空则自动读取文档标题"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="feishuDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="feishuImporting"
+          :disabled="!feishuForm.url || !feishuUrlValid"
+          @click="handleImportFeishu"
+        >
+          {{ feishuImporting ? '正在获取文档...' : '导入到知识库' }}
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 上传文本弹窗 -->
     <el-dialog v-model="textDialogVisible" title="粘贴文本到知识库" width="640px" :close-on-click-modal="false">
       <el-form :model="textForm" label-width="80px">
@@ -128,13 +168,18 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Link } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/stores'
 import {
   getKnowledgeDocuments,
   uploadTextDocument,
   uploadFileDocument,
-  deleteKnowledgeDocument
+  deleteKnowledgeDocument,
+  importFeishuDocument
 } from '@/api/knowledge'
+
+// 飞书文档 URL 校验正则（支持 feishu.cn / larksuite.com / larkoffice.com）
+const FEISHU_URL_REGEX = /https:\/\/[a-zA-Z0-9\-]+\.(feishu\.cn|larksuite\.com|larkoffice\.com)\/(docx|docs|wiki)\/[A-Za-z0-9\-_]+/
 
 const projectStore = useProjectStore()
 const projectId = computed(() => projectStore.currentProject?.id)
@@ -152,8 +197,12 @@ const failedCount = computed(() => documents.value.filter(d => d.status === 'fai
 
 const textDialogVisible = ref(false)
 const fileDialogVisible = ref(false)
+const feishuDialogVisible = ref(false)
 const textForm = ref({ title: '', text: '' })
 const selectedFile = ref(null)
+const feishuForm = ref({ url: '', title: '' })
+const feishuUrlValid = ref(false)
+const feishuImporting = ref(false)
 
 const statusTagType = (s) => ({ completed: 'success', processing: 'warning', failed: 'danger', pending: 'info' }[s] || 'info')
 const statusLabel = (s) => ({ completed: '已入库', processing: '处理中', failed: '失败', pending: '待处理' }[s] || s)
@@ -181,6 +230,34 @@ const showUploadTextDialog = () => {
 const showUploadFileDialog = () => {
   selectedFile.value = null
   fileDialogVisible.value = true
+}
+
+const showFeishuDialog = () => {
+  feishuForm.value = { url: '', title: '' }
+  feishuUrlValid.value = false
+  feishuDialogVisible.value = true
+}
+
+const validateFeishuUrl = () => {
+  feishuUrlValid.value = FEISHU_URL_REGEX.test(feishuForm.value.url)
+}
+
+const handleImportFeishu = async () => {
+  if (!feishuForm.value.url || !feishuUrlValid.value) return
+  feishuImporting.value = true
+  try {
+    await importFeishuDocument(projectId.value, {
+      url: feishuForm.value.url,
+      title: feishuForm.value.title || undefined
+    })
+    ElMessage.success('飞书文档导入成功，正在入库处理...')
+    feishuDialogVisible.value = false
+    fetchDocuments()
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '导入失败，请确认文档已分享给应用Bot')
+  } finally {
+    feishuImporting.value = false
+  }
 }
 
 const handleUploadText = async () => {
@@ -300,5 +377,18 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.url-error-tip {
+  font-size: 12px;
+  color: #f56c6c;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.url-ok-tip {
+  font-size: 12px;
+  color: #67c23a;
+  margin-top: 4px;
 }
 </style>

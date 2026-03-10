@@ -112,23 +112,19 @@
             </el-sub-menu>
           </el-sub-menu>
 
-          <!-- AI生成测试用例 -->
+          <!-- AI功能测试 -->
           <el-sub-menu index="function-test">
             <template #title>
               <el-icon><Operation /></el-icon>
-              <span>AI生成测试用例</span>
+              <span>AI功能测试</span>
             </template>
             <el-menu-item index="/function-test/ai-optimize">
-              <el-icon><MagicStick /></el-icon>
-              <template #title>AI优化需求</template>
-            </el-menu-item>
-            <el-menu-item index="/function-test/requirement">
-              <el-icon><Document /></el-icon>
-              <template #title>AI生成用例</template>
+              <el-icon><Aim /></el-icon>
+              <template #title>AI生成测试用例</template>
             </el-menu-item>
             <el-menu-item index="/function-test/case">
               <el-icon><List /></el-icon>
-              <template #title>功能用例集</template>
+              <template #title>功能用例管理</template>
             </el-menu-item>
             <el-menu-item index="/function-test/defect">
               <el-icon><Warning /></el-icon>
@@ -321,8 +317,10 @@
 
         <!-- 主内容 -->
         <el-main class="main-content">
-          <router-view >
-
+          <router-view v-slot="{ Component, route }">
+            <keep-alive :max="15">
+              <component :is="Component" :key="route.path" />
+            </keep-alive>
           </router-view>
         </el-main>
 

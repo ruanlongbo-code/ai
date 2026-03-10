@@ -6,6 +6,11 @@ from config import settings
 import requests
 
 
+class RAGNotConfiguredError(Exception):
+    """RAG 服务未配置时抛出"""
+    pass
+
+
 class RAGClient:
     """通过api接口去接入rag知识库"""
 
@@ -14,7 +19,9 @@ class RAGClient:
             "Content-Type": "application/json",
             "X-API-Key": settings.LIGHTRAG_API_KEY
         }
-        self.url = settings.RAG_SERVER_URL
+        self.url = (settings.RAG_SERVER_URL or "").rstrip("/")
+        if not self.url:
+            raise RAGNotConfiguredError("RAG_SERVER_URL 未配置，跳过 RAG 入库")
 
     def get_requests_body(self, query: str, conversation_history=None, history_turns=10):
         """获取请求参数"""

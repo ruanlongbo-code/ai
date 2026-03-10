@@ -99,7 +99,7 @@ const routes = [
         path: 'function-test/ai-optimize',
         name: 'FunctionTestAiOptimize',
         component: () => import('../views/FunctionTest/AiOptimize/Index.vue'),
-        meta: { title: 'AI优化需求', icon: 'MagicStick' }
+        meta: { title: 'AI生成测试用例', icon: 'Aim' }
       },
       {
         path: 'function-test/requirement',
@@ -129,7 +129,7 @@ const routes = [
         path: 'function-test/case/:projectId?',
         name: 'FunctionTestCase',
         component: () => import('../views/FunctionTest/Case/Index.vue'),
-        meta: { title: '功能用例集', icon: 'List' }
+        meta: { title: '功能用例管理', icon: 'List' }
       },
       {
         path: 'function-test/defect',
@@ -420,11 +420,15 @@ const router = createRouter({
   routes
 })
 
-// 路由切换后重置内容区域滚动位置
-router.afterEach(() => {
-  const mainContent = document.querySelector('.main-content')
-  if (mainContent) {
-    mainContent.scrollTop = 0
+// 路由切换后重置内容区域滚动位置（仅非缓存页面首次进入时重置）
+const visitedPaths = new Set()
+router.afterEach((to) => {
+  if (!visitedPaths.has(to.path)) {
+    visitedPaths.add(to.path)
+    const mainContent = document.querySelector('.main-content')
+    if (mainContent) {
+      mainContent.scrollTop = 0
+    }
   }
 })
 

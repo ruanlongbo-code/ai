@@ -31,6 +31,11 @@ class KnowledgeTextUploadRequest(BaseModel):
     text: str
 
 
+class FeishuDocImportRequest(BaseModel):
+    url: str
+    title: Optional[str] = None  # 留空则使用文档原标题（从内容第一行提取）
+
+
 class KnowledgeSearchRequest(BaseModel):
     query: str
     conversation_history: Optional[list] = None

@@ -14,6 +14,7 @@ from .schemas import (
     KnowledgeDocumentResponse,
     KnowledgeDocumentListResponse,
     KnowledgeTextUploadRequest,
+    FeishuDocImportRequest,
     KnowledgeSearchRequest,
     CaseSetResponse,
     CaseSetListResponse,
@@ -34,7 +35,7 @@ router = APIRouter()
 async def get_document_list(
         project_id: int,
         page: int = Query(1, ge=1),
-        page_size: int = Query(20, ge=1, le=100),
+        page_size: int = Query(20, ge=1, le=200),
         doc_status: Optional[str] = Query(None, alias="status"),
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
 ):
@@ -104,7 +105,7 @@ async def upload_text_document(
         )
 
         try:
-            from rag.rag_api import RAGClient
+            from rag.rag_api import RAGClient, RAGNotConfiguredError
             rag_client = RAGClient()
             result = rag_client.add_document({
                 "file_source": request.title,
@@ -119,6 +120,9 @@ async def upload_text_document(
             else:
                 doc.status = "failed"
                 doc.error_message = "RAG系统处理失败"
+        except RAGNotConfiguredError as rag_nc:
+            logger.warning(f"RAG未配置，文档仅保存到数据库: {rag_nc}")
+            doc.status = "completed"
         except Exception as rag_err:
             logger.warning(f"RAG处理失败，文档已保存到数据库: {rag_err}")
             doc.status = "failed"
@@ -146,6 +150,108 @@ async def upload_text_document(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="上传文档失败"
+        )
+
+
+@router.post("/{project_id}/documents/feishu", response_model=KnowledgeDocumentResponse, summary="通过飞书文档链接导入到知识库")
+async def import_feishu_document(
+        project_id: int,
+        request: FeishuDocImportRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_editor)
+):
+    """
+    输入飞书文档链接，通过 langchain-mcp-adapters 连接 @larksuiteoapi/lark-mcp，
+    自动识别文档类型（docx / docs / wiki），获取内容后写入 RAG 知识库。
+    支持格式：
+      - https://*.feishu.cn/docx/{token}
+      - https://*.feishu.cn/docs/{token}
+      - https://*.feishu.cn/wiki/{token}
+    """
+    project, current_user = project_user
+
+    from mcp_tools.feishu_doc_tools import is_feishu_url, get_feishu_doc_content
+
+    if not is_feishu_url(request.url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="不是有效的飞书文档链接，支持 feishu.cn / larksuite.com 域名下的 docx / docs / wiki 文档"
+        )
+
+    try:
+        # 通过 MCP 获取飞书文档内容
+        content = await get_feishu_doc_content(request.url)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+    except Exception as e:
+        logger.error(f"获取飞书文档失败: {e}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"获取飞书文档内容失败: {str(e)}"
+        )
+
+    # 标题：优先用传入的，否则从内容第一行（# 标题）提取，再兜底用 URL
+    title = request.title
+    if not title:
+        first_line = content.strip().splitlines()[0] if content.strip() else ""
+        title = first_line.lstrip("#").strip() or request.url
+
+    try:
+        doc = await KnowledgeDocument.create(
+            project_id=project_id,
+            title=title,
+            doc_type="feishu",
+            file_name=request.url,
+            content_preview=content[:500] if content else "",
+            status="processing",
+            creator_id=current_user.id,
+        )
+
+        try:
+            from rag.rag_api import RAGClient, RAGNotConfiguredError
+            rag_client = RAGClient()
+            result = rag_client.add_document({
+                "file_source": title,
+                "text": content,
+            })
+            if result.get("status") in ("success", "update"):
+                doc.rag_doc_id = result.get("doc_on")
+                doc.status = "completed"
+            else:
+                doc.status = "failed"
+                doc.error_message = "RAG系统处理失败"
+        except RAGNotConfiguredError as rag_nc:
+            logger.warning(f"RAG未配置，文档仅保存到数据库: {rag_nc}")
+            doc.status = "completed"
+        except Exception as rag_err:
+            logger.warning(f"RAG处理失败: {rag_err}")
+            doc.status = "failed"
+            doc.error_message = str(rag_err)[:500]
+
+        await doc.save()
+
+        return KnowledgeDocumentResponse(
+            id=doc.id,
+            project_id=doc.project_id,
+            title=doc.title,
+            doc_type=doc.doc_type,
+            file_name=doc.file_name,
+            content_preview=doc.content_preview,
+            rag_doc_id=doc.rag_doc_id,
+            status=doc.status,
+            error_message=doc.error_message,
+            creator_id=doc.creator_id,
+            created_at=doc.created_at,
+            updated_at=doc.updated_at,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"导入飞书文档失败: {e}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="导入飞书文档失败"
         )
 
 
@@ -193,7 +299,7 @@ async def upload_file_document(
         )
 
         try:
-            from rag.rag_api import RAGClient
+            from rag.rag_api import RAGClient, RAGNotConfiguredError
             rag_client = RAGClient()
             result = rag_client.add_document({
                 "file_source": file.filename,
@@ -207,6 +313,9 @@ async def upload_file_document(
             else:
                 doc.status = "failed"
                 doc.error_message = "RAG系统处理失败"
+        except RAGNotConfiguredError as rag_nc:
+            logger.warning(f"RAG未配置，文档仅保存到数据库: {rag_nc}")
+            doc.status = "completed"
         except Exception as rag_err:
             logger.warning(f"RAG处理失败: {rag_err}")
             doc.status = "failed"

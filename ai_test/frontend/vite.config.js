@@ -28,7 +28,15 @@ export default defineConfig(({mode}) => {
             // 是否开启热更新
             hmr: true,
             // 端口号
-            port: env.VITE_PORT ? parseInt(env.VITE_PORT) : 5173
+            port: env.VITE_PORT ? parseInt(env.VITE_PORT) : 5173,
+            // API 代理：将 /api 请求转发到 nginx（nginx 负责去掉 /api 前缀并转发到后端）
+            proxy: {
+                '/api': {
+                    target: 'http://localhost:8000',
+                    changeOrigin: true,
+                    rewrite: (path) => path.replace(/^\/api/, ''),
+                }
+            }
         },
         css: {
             preprocessorOptions: {

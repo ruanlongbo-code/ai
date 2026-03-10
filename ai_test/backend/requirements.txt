@@ -16,6 +16,7 @@ langchain_core
 langchain-openai
 langchain_community
 langgraph_supervisor
+langchain-mcp-adapters
 faiss-cpu
 langgraph
 langsmith

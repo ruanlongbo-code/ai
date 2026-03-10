@@ -7,6 +7,8 @@ services:
     restart: always
     container_name: py_mysql
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: 123456py
       MYSQL_DATABASE: fastapi
@@ -40,10 +42,15 @@ services:
       - LLM_MODEL=bedrock-claude-4-sonnet
       - BASE_URL=https://litellm.shoplazza.site
       - API_KEY=sk-shoplazza-Cluade-0819
-      - FEISHU_APP_ID=cli_a916d2554038dcb3
+      - FEISHU_APP_ID=cli_a997f8b06a7bd00c
       - FEISHU_APP_SECRET=lXP7VcwRiIoCO4MNXy68WdJLXPHDBFG4
       - FEISHU_PROJECT_KEY=research__development
       - FEISHU_MCP_KEY=m-42d1d9e6-efdb-488a-8509-87facc5f43e2
+      # LangSmith 链路追踪配置（可选，填写后自动开启 Agent 追踪）
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-true}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-ai-test-platform}
+      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT:-https://api.smith.langchain.com}
     volumes:
       - backend_logs:/app/logs
 

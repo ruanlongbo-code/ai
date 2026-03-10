@@ -73,6 +73,53 @@ class FunctionalCaseSet(Model):
         table_description = "功能用例集表"
 
 
+class TestPointSet(Model):
+    """测试点集表"""
+    id = fields.IntField(pk=True, description="测试点集ID")
+    name = fields.CharField(max_length=255, description="测试点集名称")
+    description = fields.TextField(null=True, description="测试点集描述")
+    point_count = fields.IntField(default=0, description="测试点数量")
+    created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
+    updated_at = fields.DatetimeField(auto_now=True, description="更新时间")
+
+    project = fields.ForeignKeyField(
+        'models.Project',
+        related_name='test_point_sets',
+        on_delete=fields.CASCADE,
+        description="关联项目"
+    )
+    creator = fields.ForeignKeyField(
+        'models.User',
+        related_name='created_test_point_sets',
+        on_delete=fields.CASCADE,
+        description="创建人"
+    )
+
+    class Meta:
+        table = "test_point_set"
+        table_description = "测试点集表"
+
+
+class TestPoint(Model):
+    """测试点表"""
+    id = fields.IntField(pk=True, description="测试点ID")
+    name = fields.CharField(max_length=500, description="测试点名称")
+    point_type = fields.CharField(max_length=50, null=True, description="测试点类型（正向验证/边界测试/异常处理）")
+    sort_order = fields.IntField(default=0, description="排序")
+    created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
+
+    test_point_set = fields.ForeignKeyField(
+        'models.TestPointSet',
+        related_name='points',
+        on_delete=fields.CASCADE,
+        description="关联测试点集"
+    )
+
+    class Meta:
+        table = "test_point"
+        table_description = "测试点表"
+
+
 class FunctionalCase(Model):
     """功能用例表"""
     id = fields.IntField(pk=True, description="用例ID")

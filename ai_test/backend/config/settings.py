@@ -7,6 +7,17 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # =============大模型配置================
 # 加载环境变量
 dotenv.load_dotenv(os.path.join(BASE_DIR, '.env'))
+
+# =============LangSmith 追踪配置================
+# 若环境变量中设置了 LANGCHAIN_API_KEY，则自动开启 LangSmith 链路追踪
+_langsmith_api_key = os.getenv('LANGCHAIN_API_KEY', '')
+if _langsmith_api_key:
+    # 必须显式写入 os.environ，LangSmith SDK 才能读取到 API Key
+    os.environ['LANGCHAIN_API_KEY'] = _langsmith_api_key
+    os.environ.setdefault('LANGCHAIN_TRACING_V2', 'true')
+    os.environ.setdefault('LANGCHAIN_PROJECT', 'ai-test-platform')
+    os.environ.setdefault('LANGCHAIN_ENDPOINT', 'https://api.smith.langchain.com')
+
 # RAG配置
 # 内存输出路径
 OUTPUT_PATH = os.path.join(os.path.join(BASE_DIR, "rag"), "output")

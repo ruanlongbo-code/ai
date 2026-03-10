@@ -35,7 +35,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 平台数据库连接配置（使用离散环境变量拼接）
-db_host = os.getenv("DATA_BASE_HOST", "localhost")
+db_host = os.getenv("DATA_BASE_HOST", "127.0.0.1")
 db_port = os.getenv("DATA_BASE_PORT", "3306")
 db_user = os.getenv("DATA_BASE_USER", "root")
 db_password = os.getenv("DATA_BASE_PASSWORD", "123456py")

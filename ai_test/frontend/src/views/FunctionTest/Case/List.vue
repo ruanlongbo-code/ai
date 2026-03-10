@@ -81,6 +81,9 @@
                       <el-dropdown-item @click="handleEditCaseSet(cs)">
                         <el-icon><Edit /></el-icon> 编辑
                       </el-dropdown-item>
+                      <el-dropdown-item @click="handleExportXmind(cs)">
+                        <el-icon><Download /></el-icon> 导出 XMind
+                      </el-dropdown-item>
                       <el-dropdown-item @click="handleDeleteCaseSet(cs)" divided>
                         <el-icon color="#F56C6C"><Delete /></el-icon>
                         <span style="color: #F56C6C;">删除</span>
@@ -168,8 +171,8 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { FolderAdd, Refresh, Search, FolderOpened, Edit, Delete, MoreFilled } from '@element-plus/icons-vue'
-import { getCaseSetList, createCaseSet, updateCaseSet, deleteCaseSet, getRequirementsList } from '@/api/functional_test'
+import { FolderAdd, Refresh, Search, FolderOpened, Edit, Delete, MoreFilled, Download } from '@element-plus/icons-vue'
+import { getCaseSetList, createCaseSet, updateCaseSet, deleteCaseSet, getRequirementsList, exportCaseSetXmind } from '@/api/functional_test'
 import { useProjectStore } from '@/stores'
 
 const router = useRouter()
@@ -310,6 +313,24 @@ const handleDeleteCaseSet = async (cs) => {
   }
 }
 
+const handleExportXmind = async (cs) => {
+  try {
+    const projectId = getProjectId()
+    const res = await exportCaseSetXmind(projectId, cs.id)
+    const blobData = res.data || res
+    const blob = new Blob([blobData], { type: 'application/octet-stream' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${cs.name}_测试用例.xmind`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('XMind 导出成功')
+  } catch (e) {
+    ElMessage.error(e.response?.data?.detail || '导出失败')
+  }
+}
+
 const handleSaveCaseSet = async () => {
   if (!caseSetDialog.form.name?.trim()) {
     ElMessage.warning('请输入用例集名称')
@@ -346,29 +367,29 @@ onMounted(() => {
 
 <style scoped>
 .functional-cases-page {
-  padding: 24px;
+  padding: 16px;
   background: #f5f7fa;
-  min-height: 100vh;
+  min-height: auto;
 }
 
 .page-header {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .header-content {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   background: white;
-  padding: 24px;
-  border-radius: 12px;
+  padding: 16px 20px;
+  border-radius: 10px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
 .title-section h1 {
   color: #1f2937;
-  margin: 0 0 6px 0;
-  font-size: 22px;
+  margin: 0 0 2px 0;
+  font-size: 18px;
   font-weight: 600;
 }
 
@@ -385,24 +406,24 @@ onMounted(() => {
 
 /* 统计栏 */
 .stats-bar {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .stats-row {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 20px;
 }
 
 .stat-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
 }
 
 .stat-value {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   color: #409EFF;
 }
@@ -414,15 +435,15 @@ onMounted(() => {
 
 /* 搜索 */
 .filter-toolbar {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 /* 卡片网格 */
 .case-sets-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 16px;
-  min-height: 200px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  min-height: 160px;
 }
 
 .case-set-card {
@@ -523,7 +544,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 300px;
+  min-height: 180px;
 }
 
 /* 响应式 */

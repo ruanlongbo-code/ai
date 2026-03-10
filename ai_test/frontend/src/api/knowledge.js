@@ -16,6 +16,15 @@ export function deleteKnowledgeDocument(projectId, docId) {
   return request({ url: `/knowledge/${projectId}/documents/${docId}`, method: 'delete' })
 }
 
+export function importFeishuDocument(projectId, data) {
+  return request({
+    url: `/knowledge/${projectId}/documents/feishu`,
+    method: 'post',
+    data,
+    timeout: 120000  // 飞书文档获取可能耗时较长
+  })
+}
+
 export function searchKnowledgeSync(projectId, data) {
   return request({ url: `/knowledge/${projectId}/search/sync`, method: 'post', data })
 }

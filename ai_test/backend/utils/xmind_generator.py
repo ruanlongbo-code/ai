@@ -93,69 +93,197 @@ def _format_steps_from_json(test_steps) -> str:
     return str(test_steps)
 
 
+def _build_step_sub_topics(text: str) -> List[Dict]:
+    """将多行步骤/预期结果文本拆分为独立的子节点列表"""
+    if not text or not text.strip():
+        return []
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    if len(lines) <= 1:
+        split_lines = re.split(r'\s+(?=\d+[\.\)、])', text)
+        if len(split_lines) > 1:
+            lines = [line.strip() for line in split_lines if line.strip()]
+        else:
+            split_lines2 = re.split(r'(?<=[\u4e00-\u9fff\w\)）])(?=\d+[\.\)、])', text)
+            if len(split_lines2) > 1:
+                lines = [line.strip() for line in split_lines2 if line.strip()]
+    result = []
+    for i, line in enumerate(lines, 1):
+        clean_line = re.sub(r'^\d+[\.\)、]\s*', '', line)
+        if clean_line:
+            result.append({
+                "id": _generate_id(),
+                "title": f"{i}.{clean_line}",
+                "class": "topic"
+            })
+    if not result and text.strip():
+        result.append({
+            "id": _generate_id(),
+            "title": text.strip(),
+            "class": "topic"
+        })
+    return result
+
+
+_LEADING_NUMBER_RE = re.compile(
+    r'^(?:[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]\s*[\.、)）:：]?\s*|\d+\s*[\.、)）:：]\s*)'
+)
+
+
+def _strip_leading_number(text: str) -> str:
+    """循环去掉文本开头的所有编号前缀，处理 ①1. / 1.① 等多重编号叠加"""
+    text = text.strip()
+    while True:
+        new_text = _LEADING_NUMBER_RE.sub('', text)
+        if new_text == text:
+            break
+        text = new_text.strip()
+    return text
+
+
+def _normalize_list(raw) -> List[str]:
+    """将 str / list[str] / list[dict] 统一转为 list[str]，并去掉编号前缀"""
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        lines = [l.strip() for l in raw.split('\n') if l.strip()]
+        cleaned = [_strip_leading_number(l) for l in lines]
+        cleaned = [c for c in cleaned if c]
+        return cleaned if cleaned else [raw.strip()]
+    if isinstance(raw, list):
+        result = []
+        for item in raw:
+            if isinstance(item, dict):
+                val = str(item.get('action', item.get('step', item.get('result', ''))))
+            else:
+                val = str(item)
+            val = _strip_leading_number(val)
+            if val:
+                result.append(val)
+        return result
+    return [_strip_leading_number(str(raw)) or str(raw)]
+
+
 def _build_case_topic(case: Dict, settings: Dict) -> Dict:
     """
-    构建单个用例的 XMind 主题节点
-    结构：测试标题 → [前置条件, 测试步骤, 预期结果]（平级子节点）
+    构建单个用例的 XMind 主题节点（三层链式结构）。
+
+    XMind 层级：
+      根节点(项目/需求)
+        └── 场景(scenario)
+             └── [P1][TC-0001] 用例标题
+                  └── 前置条件：条件A；条件B
+                       └── 步骤①：xxx 步骤②：xxx
+                            └── 预期结果：1. xxx；2. xxx
     """
+    step_labels = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩',
+                   '⑪', '⑫', '⑬', '⑭', '⑮', '⑯', '⑰', '⑱', '⑲', '⑳']
+
     show_priority = settings.get('show_priority', True)
     show_case_id = settings.get('show_case_id', False)
-    show_node_labels = settings.get('show_node_labels', True)
 
     case_title_parts = []
 
     if show_priority:
         priority = case.get('priority', 3)
-        case_title_parts.append(f'{{{_priority_label(priority)}}}')
+        case_title_parts.append(f'[{_priority_label(priority)}]')
 
     if show_case_id:
         case_id = case.get('case_no', case.get('case_id', ''))
         if case_id:
             case_title_parts.append(f'[{case_id}]')
 
-    case_name = case.get('case_name', '未命名用例')
+    case_name = case.get('case_name', case.get('case_title', '未命名用例'))
     case_title_parts.append(case_name)
 
     case_title = ' '.join(case_title_parts)
 
-    # 前置条件、测试步骤、预期结果作为平级子节点
-    node_definitions = [
-        ("preconditions", "前置条件"),
-        ("test_steps", "测试步骤"),
-        ("expected_result", "预期结果"),
-    ]
+    # --- 收集数据 ---
+    preconditions_raw = case.get('preconditions', case.get('precondition', ''))
+    preconditions_list = _normalize_list(preconditions_raw)
 
-    children_nodes = []
-    for field_key, label in node_definitions:
-        raw_value = case.get(field_key, '')
+    steps_list = _normalize_list(case.get('test_steps', ''))
+    expected_list = _normalize_list(
+        case.get('expected_result', case.get('expected_results', ''))
+    )
 
-        if field_key == "test_steps":
-            text = _format_steps_from_json(raw_value)
+    tags = case.get('tags', [])
+
+    # --- 合并所有步骤为一个节点文本（换行分隔） ---
+    steps_text = ""
+    if steps_list:
+        parts = []
+        for i, step_text in enumerate(steps_list):
+            label = step_labels[i] if i < len(step_labels) else f'{i+1}'
+            parts.append(f"步骤{label}：{step_text}")
+        steps_text = "\n".join(parts)
+
+    # --- 合并所有预期结果为一个节点文本（换行分隔） ---
+    expected_text = ""
+    if expected_list:
+        if len(expected_list) == 1:
+            expected_text = expected_list[0]
         else:
-            text = str(raw_value) if raw_value else ''
+            parts = []
+            for i, e in enumerate(expected_list):
+                label = step_labels[i] if i < len(step_labels) else f'{i+1}'
+                parts.append(f"{label}{e}")
+            expected_text = "\n".join(parts)
 
-        if not text or not text.strip():
-            continue
+    # --- 构建链式层级：用例标题 → 前置条件 → 步骤 → 预期结果 ---
+    # 从最内层往外构建
 
-        content = _format_numbered_list(text)
-
-        # 始终添加标签前缀，方便识别节点类型
-        content = f"{label}：{content}"
-
-        children_nodes.append({
+    # 预期结果节点
+    expected_node = None
+    if expected_text:
+        expected_node = {
             "id": _generate_id(),
-            "title": content,
+            "title": f"预期结果：{expected_text}",
+            "class": "topic"
+        }
+
+    # 步骤节点
+    steps_node = None
+    if steps_text:
+        steps_node = {
+            "id": _generate_id(),
+            "title": steps_text,
+            "class": "topic"
+        }
+        if expected_node:
+            steps_node["children"] = {"attached": [expected_node]}
+    elif expected_node:
+        steps_node = expected_node
+
+    # 标签作为额外子节点（与步骤同级，挂在前置条件下）
+    pre_children = []
+    if steps_node:
+        pre_children.append(steps_node)
+    if tags and isinstance(tags, list):
+        pre_children.append({
+            "id": _generate_id(),
+            "title": f"标签：{', '.join(str(t) for t in tags)}",
             "class": "topic"
         })
 
+    # 前置条件节点
     case_topic = {
         "id": _generate_id(),
         "title": case_title,
         "class": "topic"
     }
 
-    if children_nodes:
-        case_topic["children"] = {"attached": children_nodes}
+    if preconditions_list:
+        pre_text = "；".join(preconditions_list)
+        pre_node = {
+            "id": _generate_id(),
+            "title": f"前置条件：{pre_text}",
+            "class": "topic"
+        }
+        if pre_children:
+            pre_node["children"] = {"attached": pre_children}
+        case_topic["children"] = {"attached": [pre_node]}
+    elif pre_children:
+        case_topic["children"] = {"attached": pre_children}
 
     return case_topic
 
@@ -175,19 +303,21 @@ def generate_xmind_content(
     scenario_prefix = settings.get('scenario_prefix', settings.get('root_prefix', '验证'))
     scenario_suffix = settings.get('scenario_suffix', settings.get('root_suffix', '功能'))
 
-    # 根节点直接使用需求标题
-    root_title = requirement_title
+    # 根节点标题格式化为【xxx】测试用例
+    clean_title = re.sub(r'[\s_\-]*测试[点用]例.*$', '', requirement_title).strip()
+    clean_title = re.sub(r'[\s_\-]*测试点.*$', '', clean_title).strip()
+    clean_title = re.sub(r'[\s_\-]*功能测试.*$', '', clean_title).strip()
+    clean_title = clean_title.strip(' -_—')
+    root_title = f"【{clean_title}】测试用例"
 
-    # 按场景→用例构建三级结构：测试点 → 测试标题 → [前置条件, 测试步骤, 预期结果]
     if scenario_groups:
         scenario_topics = []
         for scenario_name, cases in scenario_groups.items():
             case_topics = [_build_case_topic(c, settings) for c in cases]
-            # 场景名称应用前后缀（作为"测试点"）
             display_name = f"{scenario_prefix}{scenario_name}{scenario_suffix}" if (scenario_prefix or scenario_suffix) else scenario_name
             scenario_topic = {
                 "id": _generate_id(),
-                "title": f"🎯 {display_name}",
+                "title": display_name,
                 "class": "topic"
             }
             if case_topics:
