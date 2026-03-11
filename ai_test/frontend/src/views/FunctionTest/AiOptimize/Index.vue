@@ -316,6 +316,7 @@ AI 将自动：
           <span class="case-gen-title">{{ caseGenProgress < 100 ? 'AI 并发生成中...' : '生成完成！' }}</span>
           <span v-if="caseGenProgress < 100" class="case-gen-elapsed">已耗时 {{ caseGenElapsed }}</span>
         </div>
+        <div v-if="caseGenProgress < 100 && caseGenEstimate" class="case-gen-estimate">{{ caseGenEstimate }}</div>
         <el-progress
           :percentage="Math.round(caseGenProgress)"
           :stroke-width="12"
@@ -396,8 +397,12 @@ const caseGenMessage = ref('')
 const caseGenStreamText = ref('')
 const caseGenStreamRef = ref(null)
 const caseGenElapsed = ref('0秒')
+const caseGenEstimate = ref('')
 let caseGenAbortController = null
 let caseGenElapsedTimer = null
+let caseGenSmoothTimer = null
+let caseGenTargetProgress = 0
+let caseGenStartTime = 0
 
 const projectId = computed(() => projectStore.currentProject?.id)
 
@@ -608,24 +613,71 @@ const stopCaseGenTimer = () => {
     clearInterval(caseGenElapsedTimer)
     caseGenElapsedTimer = null
   }
+  if (caseGenSmoothTimer) {
+    clearInterval(caseGenSmoothTimer)
+    caseGenSmoothTimer = null
+  }
+}
+
+const startSmoothProgress = () => {
+  caseGenSmoothTimer = setInterval(() => {
+    const current = caseGenProgress.value
+    if (current >= 100) {
+      clearInterval(caseGenSmoothTimer)
+      caseGenSmoothTimer = null
+      return
+    }
+    const target = caseGenTargetProgress
+    if (current < target) {
+      caseGenProgress.value = Math.min(current + Math.max(0.3, (target - current) * 0.15), target)
+    } else if (current < 70) {
+      caseGenProgress.value = Math.min(current + 0.08, 70)
+    }
+  }, 300)
+}
+
+const updateCaseGenEstimate = () => {
+  const elapsed = (Date.now() - caseGenStartTime) / 1000
+  const progress = caseGenProgress.value
+  if (progress > 5 && progress < 95) {
+    const totalEstimate = elapsed / (progress / 100)
+    const remaining = Math.max(0, totalEstimate - elapsed)
+    if (remaining < 60) {
+      caseGenEstimate.value = `预计剩余 ${Math.ceil(remaining)} 秒`
+    } else {
+      caseGenEstimate.value = `预计剩余 ${Math.floor(remaining / 60)}分${Math.ceil(remaining % 60)}秒`
+    }
+  } else if (progress >= 95) {
+    caseGenEstimate.value = '即将完成...'
+  } else {
+    caseGenEstimate.value = '正在预估...'
+  }
+}
+
+const setCaseGenTarget = (target) => {
+  caseGenTargetProgress = Math.max(caseGenTargetProgress, Math.min(target, 99))
 }
 
 const handleGenerateCasesFromResult = async () => {
   if (!latestResult.value?.test_point_set_id || !projectId.value) return
   generatingCases.value = true
   caseGenVisible.value = true
-  caseGenProgress.value = 2
+  caseGenProgress.value = 0
+  caseGenTargetProgress = 0
   caseGenMessage.value = '正在准备生成测试用例...'
   caseGenStreamText.value = ''
   caseGenElapsed.value = '0秒'
+  caseGenEstimate.value = '正在预估...'
   caseGenAbortController = new AbortController()
 
-  const startTime = Date.now()
+  caseGenStartTime = Date.now()
   stopCaseGenTimer()
   caseGenElapsedTimer = setInterval(() => {
-    const sec = Math.floor((Date.now() - startTime) / 1000)
+    const sec = Math.floor((Date.now() - caseGenStartTime) / 1000)
     caseGenElapsed.value = sec < 60 ? `${sec}秒` : `${Math.floor(sec / 60)}分${sec % 60}秒`
+    updateCaseGenEstimate()
   }, 1000)
+  startSmoothProgress()
 
   try {
     const response = await generateCasesFromTestpoints(
@@ -642,8 +694,8 @@ const handleGenerateCasesFromResult = async () => {
     await processSSEStream(response, (data) => {
       if (data.type === 'chunk') {
         caseGenStreamText.value += data.content
-        const newProgress = data.progress || caseGenProgress.value
-        caseGenProgress.value = Math.max(caseGenProgress.value, Math.min(newProgress, 74))
+        const newProgress = data.progress || caseGenTargetProgress
+        setCaseGenTarget(Math.min(newProgress, 74))
         if (data.batch && data.total_batches) {
           caseGenMessage.value = `正在生成第 ${data.batch}/${data.total_batches} 批...`
         }
@@ -652,16 +704,20 @@ const handleGenerateCasesFromResult = async () => {
         })
       } else if (data.type === 'progress') {
         caseGenMessage.value = data.message || ''
-        const newProgress = data.progress || caseGenProgress.value
-        caseGenProgress.value = Math.max(caseGenProgress.value, newProgress)
+        const newProgress = data.progress || caseGenTargetProgress
+        setCaseGenTarget(newProgress)
       } else if (data.type === 'result') {
         caseSetId = data.data?.case_set_id
+        caseGenTargetProgress = 100
         caseGenProgress.value = 100
         caseGenMessage.value = `生成完成！共 ${data.data?.total_cases} 条用例`
+        caseGenEstimate.value = ''
         stopCaseGenTimer()
         ElMessage.success(`用例集生成完成！共 ${data.data?.total_cases} 条用例`)
       } else if (data.type === 'done') {
+        caseGenTargetProgress = 100
         caseGenProgress.value = 100
+        caseGenEstimate.value = ''
         stopCaseGenTimer()
       } else if (data.type === 'error') {
         throw new Error(data.message || '生成失败')
@@ -678,10 +734,12 @@ const handleGenerateCasesFromResult = async () => {
     if (e.name === 'AbortError') {
       caseGenMessage.value = '已取消生成'
       caseGenProgress.value = 0
+      caseGenEstimate.value = ''
       setTimeout(() => { caseGenVisible.value = false }, 1000)
       return
     }
     caseGenMessage.value = `生成失败: ${e.message}`
+    caseGenEstimate.value = ''
     ElMessage.error(e.message || '生成用例集失败')
   } finally {
     generatingCases.value = false
@@ -1081,11 +1139,18 @@ onActivated(() => initPage())
   color: #9ca3af;
   flex-shrink: 0;
 }
+.case-gen-estimate {
+  text-align: right;
+  font-size: 12px;
+  color: #8b5cf6;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
 .case-gen-progress-bar {
   margin: 12px 0;
 }
 .case-gen-progress-bar :deep(.el-progress-bar__inner) {
-  transition: width 0.6s ease;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .case-gen-msg {
   text-align: center;

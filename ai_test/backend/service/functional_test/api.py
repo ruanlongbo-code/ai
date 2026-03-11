@@ -2929,7 +2929,7 @@ async def generate_cases_from_testpoints(
     except Exception as e:
         logger.warning(f"知识库检索失败（不影响生成）: {e}")
 
-    BATCH_SIZE = 8
+    BATCH_SIZE = 5
     point_batches = []
     for i in range(0, len(points), BATCH_SIZE):
         point_batches.append(points[i:i + BATCH_SIZE])
@@ -2940,48 +2940,20 @@ async def generate_cases_from_testpoints(
             f"{start_idx + j + 1}. {p.name}" + (f"（{p.point_type}）" if p.point_type else "")
             for j, p in enumerate(batch_points)
         ])
-        return f"""你是资深测试架构师，擅长支付/金融系统测试。根据以下测试点列表，为每个测试点生成详细的测试用例。
-{rag_reference}
+        return f"""资深测试架构师，根据测试点生成测试用例。{rag_reference}
 
-## 测试点列表
+## 测试点
 {pts_text}
 
-## 输出格式（严格JSON，不要markdown标记）
-[
-  {{
-    "module": "模块/测试分类名称（按业务场景灵活命名，如：功能验证、账户动账逻辑、资金流转、参数校验、异常场景、状态流转）",
-    "cases": [
-      {{
-        "case_id": "TC-{tc_start:04d}",
-        "case_title": "模块名-场景描述",
-        "priority": "P0/P1/P2/P3",
-        "tags": ["核心功能", "相关标签"],
-        "precondition": "前置条件1\\n前置条件2",
-        "test_steps": ["步骤1描述", "步骤2描述", "步骤3描述"],
-        "expected_results": ["步骤1的预期结果", "步骤2的预期结果", "步骤3的预期结果"]
-      }}
-    ]
-  }}
-]
+## 输出（严格JSON，无markdown）
+[{{"module":"分类名","cases":[{{"case_id":"TC-{tc_start:04d}","case_title":"场景描述","priority":"P0/P1/P2/P3","tags":["标签"],"precondition":"前置条件","test_steps":["步骤1","步骤2"],"expected_results":["预期1","预期2"]}}]}}]
 
-## 关键要求
-- test_steps 和 expected_results 必须是数组，且一一对应（第N个步骤对应第N个预期结果）
-- precondition 是字符串，多条用 \\n 分隔
-- tags 是字符串数组，标注用例特征（如：核心功能、冒烟测试、边界测试、异常场景等）
-- case_id 从 TC-{tc_start:04d} 开始递增编号
-
-## 分类规则
-- module 按业务场景灵活命名，常用分类：功能验证、账户动账逻辑、资金流转、业务流程、参数校验、异常场景、状态流转、UI
-- 异常订单（如资金进入 psp-develop）是正常业务分支 → 归入「账户动账逻辑」，不是异常场景
-- 「异常场景」仅限：余额不足、渠道故障、并发冲突、网络超时、重复请求
-
-## 用例设计原则
-- 每个测试点至少生成 2-5 个用例，覆盖：正常流程 + 边界值 + 异常场景
-- P0: 核心功能主流程  P1: 重要分支和关键边界  P2: 一般边界和异常  P3: 极端低频场景
-- 前置条件：资金类场景必须写明各账户初始余额
-- 预期结果：写明余额变化量、状态码等可量化指标；资金类用例体现资金守恒
-- 相似用例合并，避免重复冗余
-- 前置条件、测试步骤、预期结果必须具体可操作，不能笼统"""
+## 规则
+- test_steps与expected_results数组一一对应，precondition字符串(多条用\\n分隔)，case_id从TC-{tc_start:04d}递增
+- 每个测试点生成2-3个用例，覆盖正常+边界+异常；相似用例合并
+- P0核心主流程 P1重要分支 P2一般边界 P3极端场景
+- 前置条件和预期结果要具体可量化（余额变化量、状态码等）
+- module按业务命名：功能验证、参数校验、异常场景、状态流转等"""
 
     def parse_llm_json(raw_content):
         """从 LLM 输出中提取 JSON 数组"""
@@ -2998,10 +2970,11 @@ async def generate_cases_from_testpoints(
             return json.loads(json_match.group())
         return None
 
-    MAX_CONCURRENT = 3
+    MAX_CONCURRENT = 5
 
     async def generate():
         import base64
+        import time
         try:
             total_points = len(points)
             yield f"data: {json.dumps({'type': 'progress', 'message': f'共 {total_points} 个测试点，将分 {total_batches} 批并发生成用例（并发数 {min(MAX_CONCURRENT, total_batches)}）...', 'progress': 2}, ensure_ascii=False)}\n\n"
@@ -3027,7 +3000,6 @@ async def generate_cases_from_testpoints(
             async def run_batch(batch_idx, batch_points, tc_start, point_offset):
                 nonlocal completed_batches
                 batch_num = batch_idx + 1
-                batch_weight = len(batch_points) / total_points
                 batch_progress_start = int(5 + (point_offset / total_points) * 65)
                 batch_progress_end = int(5 + ((point_offset + len(batch_points)) / total_points) * 65)
 
@@ -3038,16 +3010,29 @@ async def generate_cases_from_testpoints(
                     msg = HumanMessage(content=prompt)
                     full_content = ""
                     chunk_count = 0
+                    content_buffer = ""
+                    last_push_time = time.time()
 
                     try:
                         async for chunk in llm.astream([msg]):
                             if chunk.content:
                                 full_content += chunk.content
+                                content_buffer += chunk.content
                                 chunk_count += 1
-                                if chunk_count % 3 == 0:
-                                    sub_progress = min(chunk_count / 150, 0.9)
+                                now = time.time()
+                                should_push = (
+                                    chunk_count % 2 == 0 or
+                                    (now - last_push_time) >= 0.8
+                                )
+                                if should_push and content_buffer:
+                                    sub_progress = min(chunk_count / 100, 0.95)
                                     p = int(batch_progress_start + (batch_progress_end - batch_progress_start) * sub_progress)
-                                    await queue.put(f"data: {json.dumps({'type': 'chunk', 'content': chunk.content, 'progress': min(p, batch_progress_end - 1), 'batch': batch_num, 'total_batches': total_batches}, ensure_ascii=False)}\n\n")
+                                    await queue.put(f"data: {json.dumps({'type': 'chunk', 'content': content_buffer, 'progress': min(p, batch_progress_end - 1), 'batch': batch_num, 'total_batches': total_batches}, ensure_ascii=False)}\n\n")
+                                    content_buffer = ""
+                                    last_push_time = now
+
+                        if content_buffer:
+                            await queue.put(f"data: {json.dumps({'type': 'chunk', 'content': content_buffer, 'progress': batch_progress_end - 1, 'batch': batch_num, 'total_batches': total_batches}, ensure_ascii=False)}\n\n")
 
                         batch_scenarios = parse_llm_json(full_content)
                         if not batch_scenarios:
