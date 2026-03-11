@@ -475,7 +475,7 @@ import { computed, ref, onMounted, watch, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAppStore, useUserStore, useProjectStore, useTabStore } from '../stores'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getProjectDetail } from '../api/project'
+import { getProjectDetail, getProjectList } from '../api/project'
 import { changePassword, getUserProfile, updateUserProfile, verifyFeishuKey } from '@/api/user'
 import TabBar from './TabBar.vue'
 
@@ -547,11 +547,19 @@ const fetchCurrentProject = async () => {
         projectStore.setCurrentProject(response.data)
       }
     } else {
-      console.warn('无法获取有效的项目ID，跳过项目详情获取')
+      // 没有任何来源能获取 projectId，尝试从项目列表获取第一个项目
+      try {
+        const listRes = await getProjectList({ page: 1, page_size: 1 })
+        const list = listRes.data?.projects || listRes.data?.list || []
+        if (list.length > 0) {
+          projectStore.setCurrentProject(list[0])
+        }
+      } catch (e) {
+        console.warn('自动获取项目列表失败:', e)
+      }
     }
   } catch (error) {
     console.error('获取项目信息失败:', error)
-    // 如果是404错误，说明项目不存在，清除本地存储的项目信息
     if (error.response?.status === 404) {
       projectStore.clearCurrentProject()
     }

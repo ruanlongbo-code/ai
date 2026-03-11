@@ -302,7 +302,7 @@ AI 将自动：
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -320,6 +320,7 @@ import {
   getKnowledgeDocuments,
   uploadFileDocument,
 } from '@/api/knowledge'
+import { getProjectList } from '@/api/project'
 import { useProjectStore } from '@/stores'
 
 const router = useRouter()
@@ -609,9 +610,29 @@ const goToCaseManage = () => {
 
 watch(streamText, () => autoScrollStream())
 
-onMounted(() => {
-  loadKnowledgeDocs()
-})
+const ensureProject = async () => {
+  if (projectId.value) return true
+  try {
+    const res = await getProjectList({ page: 1, page_size: 1 })
+    const list = res.data?.projects || res.data?.list || []
+    if (list.length > 0) {
+      projectStore.setCurrentProject(list[0])
+      return true
+    }
+  } catch (e) {
+    console.error('自动获取项目失败:', e)
+  }
+  return false
+}
+
+const initPage = async () => {
+  if (!projectId.value) await ensureProject()
+  if (projectId.value) loadKnowledgeDocs()
+}
+
+onMounted(() => initPage())
+
+onActivated(() => initPage())
 </script>
 
 <style scoped>
