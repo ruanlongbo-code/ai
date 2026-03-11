@@ -1936,9 +1936,8 @@ async def doc_to_xmind_stream(
                 if chunk.content:
                     full_content += chunk.content
                     chunk_count += 1
-                    # 每10个chunk发一次内容更新
                     if chunk_count % 10 == 0:
-                        progress = min(20 + int(chunk_count * 0.5), 75)
+                        progress = int(20 + 55 * (1 - 1 / (1 + chunk_count / 100)))
                         yield f"data: {json.dumps({'type': 'chunk', 'content': chunk.content, 'progress': progress}, ensure_ascii=False)}\n\n"
 
             yield f"data: {json.dumps({'type': 'progress', 'message': 'AI生成完成，正在解析用例数据...', 'progress': 80}, ensure_ascii=False)}\n\n"
@@ -2698,7 +2697,7 @@ async def ai_generate_testpoints_stream(
                     full_content += chunk.content
                     chunk_count += 1
                     if chunk_count % 3 == 0:
-                        progress = min(15 + int(chunk_count * 0.8), 70)
+                        progress = int(15 + 55 * (1 - 1 / (1 + chunk_count / 80)))
                         yield f"data: {json.dumps({'type': 'chunk', 'content': chunk.content, 'progress': progress}, ensure_ascii=False)}\n\n"
 
             yield f"data: {json.dumps({'type': 'progress', 'message': 'AI生成完成，正在解析数据...', 'progress': 75}, ensure_ascii=False)}\n\n"
@@ -3418,7 +3417,7 @@ async def ai_generate_xmind_from_case_set(
                     chunk_count += 1
                     now = time.time()
                     if chunk_count % 3 == 0 or (now - last_push_time) >= 0.8:
-                        progress = min(8 + int(chunk_count * 0.5), 70)
+                        progress = int(8 + 62 * (1 - 1 / (1 + chunk_count / 80)))
                         yield f"data: {json.dumps({'type': 'chunk', 'content': batch_content, 'progress': progress}, ensure_ascii=False)}\n\n"
                         batch_content = ""
                         last_push_time = now
