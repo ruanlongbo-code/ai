@@ -2677,7 +2677,7 @@ async def ai_generate_testpoints_stream(
     async def generate():
         try:
             yield f"data: {json.dumps({'type': 'progress', 'message': '正在解析输入内容...', 'progress': 5}, ensure_ascii=False)}\n\n"
-            yield f"data: {json.dumps({'type': 'progress', 'message': 'AI 正在生成测试点和用例...', 'progress': 15}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'message': 'AI 正在生成测试点...', 'progress': 15}, ensure_ascii=False)}\n\n"
 
             full_content = ""
             chunk_count = 0
@@ -2685,8 +2685,8 @@ async def ai_generate_testpoints_stream(
                 if chunk.content:
                     full_content += chunk.content
                     chunk_count += 1
-                    if chunk_count % 10 == 0:
-                        progress = min(15 + int(chunk_count * 0.5), 70)
+                    if chunk_count % 3 == 0:
+                        progress = min(15 + int(chunk_count * 0.8), 70)
                         yield f"data: {json.dumps({'type': 'chunk', 'content': chunk.content, 'progress': progress}, ensure_ascii=False)}\n\n"
 
             yield f"data: {json.dumps({'type': 'progress', 'message': 'AI生成完成，正在解析数据...', 'progress': 75}, ensure_ascii=False)}\n\n"
