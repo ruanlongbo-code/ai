@@ -2923,10 +2923,10 @@ async def generate_cases_from_testpoints(
         from utils.knowledge_enhancer import search_rag_knowledge, get_case_set_knowledge
         rag_result = await search_rag_knowledge(tps.name[:200])
         if rag_result:
-            rag_reference += f"\n## 知识库参考用例\n{rag_result[:4000]}\n"
+            rag_reference += f"\n## 知识库参考用例\n{rag_result[:1500]}\n"
         case_set_ref = await get_case_set_knowledge(project_id)
         if case_set_ref:
-            rag_reference += f"\n## 历史用例集参考\n{case_set_ref[:2000]}\n"
+            rag_reference += f"\n## 历史用例集参考\n{case_set_ref[:800]}\n"
     except Exception as e:
         logger.warning(f"知识库检索失败（不影响生成）: {e}")
 
