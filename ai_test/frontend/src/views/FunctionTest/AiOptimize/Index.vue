@@ -438,12 +438,15 @@ const autoUploadSingleFile = async (file) => {
   }
 }
 
-const processSSEStream = async (response, onData) => {
+const processSSEStream = async (response, onData, timeoutMs = 120000) => {
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   while (true) {
-    const { value, done } = await reader.read()
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('SSE 流超时，服务器长时间无响应')), timeoutMs)
+    )
+    const { value, done } = await Promise.race([reader.read(), timeoutPromise])
     if (done) break
     buffer += decoder.decode(value, { stream: true })
     const lines = buffer.split('\n')
@@ -491,7 +494,7 @@ const handleGenerate = async () => {
       formData.append('knowledge_doc_ids', selectedDocIds.value.join(','))
     }
 
-    const response = await aiGenerateTestpointsStream(projectId.value, formData)
+    const response = await aiGenerateTestpointsStream(projectId.value, formData, abortController.signal)
     if (!response.ok) {
       const err = await response.json().catch(() => ({}))
       throw new Error(err.detail || `HTTP ${response.status}`)

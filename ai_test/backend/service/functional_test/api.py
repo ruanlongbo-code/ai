@@ -1220,6 +1220,7 @@ async def generate_test_cases_from_requirement(
                 "Connection": "keep-alive",
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Headers": "*",
+                "X-Accel-Buffering": "no",
             }
         )
 
@@ -1643,6 +1644,7 @@ async def extract_requirement_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
+            "X-Accel-Buffering": "no",
         }
     )
 
@@ -2041,6 +2043,7 @@ async def doc_to_xmind_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
+            "X-Accel-Buffering": "no",
         }
     )
 
@@ -2195,7 +2198,11 @@ async def ai_optimize_requirement(
                 logger.error(f"AI优化需求流式输出失败: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
 
-        return StreamingResponse(generate(), media_type="text/event-stream")
+        return StreamingResponse(generate(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        })
 
     except HTTPException:
         raise
@@ -2353,6 +2360,7 @@ async def ai_optimize_doc_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
+            "X-Accel-Buffering": "no",
         }
     )
 
@@ -2455,7 +2463,11 @@ async def ai_optimize_text(
                 logger.error(f"AI优化文本流式输出失败: {e}")
                 yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
 
-        return StreamingResponse(generate(), media_type="text/event-stream")
+        return StreamingResponse(generate(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        })
 
     except HTTPException:
         raise
@@ -2780,6 +2792,7 @@ async def ai_generate_testpoints_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
+            "X-Accel-Buffering": "no",
         }
     )
 
@@ -3132,6 +3145,7 @@ async def generate_cases_from_testpoints(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
+            "X-Accel-Buffering": "no",
         }
     )
 
@@ -3430,5 +3444,6 @@ async def ai_generate_xmind_from_case_set(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
+            "X-Accel-Buffering": "no",
         }
     )

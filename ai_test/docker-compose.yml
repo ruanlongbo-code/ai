@@ -39,7 +39,7 @@ services:
       - ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=4320
       - REFRESH_TOKEN_EXPIRE_DAYS=7
-      - LLM_MODEL=bedrock-claude-4-sonnet
+      - LLM_MODEL=bedrock-claude-4-5-sonnet
       - BASE_URL=https://litellm.shoplazza.site
       - API_KEY=sk-shoplazza-Cluade-0819
       - FEISHU_APP_ID=cli_a997f8b06a7bd00c

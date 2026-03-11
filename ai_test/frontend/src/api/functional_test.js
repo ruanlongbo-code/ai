@@ -401,7 +401,7 @@ export const aiOptimizeDocStream = (projectId, formData) => {
  * @param {FormData} formData - 包含 text, files, case_set_name
  * @returns {Promise<Response>} fetch Response (SSE stream)
  */
-export const aiGenerateTestpointsStream = (projectId, formData) => {
+export const aiGenerateTestpointsStream = (projectId, formData, signal) => {
   const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
   const token = localStorage.getItem('token')
   return fetch(`${baseURL}/functional_test/${projectId}/ai_generate_testpoints_stream?project_id=${projectId}`, {
@@ -409,7 +409,8 @@ export const aiGenerateTestpointsStream = (projectId, formData) => {
     headers: {
       ...(token ? { 'Authorization': `Bearer ${token}` } : {})
     },
-    body: formData
+    body: formData,
+    signal,
   })
 }
 
