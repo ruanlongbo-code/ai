@@ -2984,25 +2984,6 @@ async def generate_cases_from_testpoints(
 - 相似用例合并，避免重复冗余
 - 前置条件、测试步骤、预期结果必须具体可操作，不能笼统"""
 
-    async def call_llm_for_batch(prompt_text):
-        """调用 LLM 并收集完整输出，返回 (full_content, chunk_texts)"""
-        msg = HumanMessage(content=prompt_text)
-        full_content = ""
-        chunk_texts = []
-        batch_buf = ""
-        chunk_count = 0
-        async for chunk in llm.astream([msg]):
-            if chunk.content:
-                full_content += chunk.content
-                batch_buf += chunk.content
-                chunk_count += 1
-                if chunk_count % 5 == 0:
-                    chunk_texts.append(batch_buf)
-                    batch_buf = ""
-        if batch_buf:
-            chunk_texts.append(batch_buf)
-        return full_content, chunk_texts
-
     def parse_llm_json(raw_content):
         """从 LLM 输出中提取 JSON 数组"""
         clean = raw_content.strip()
@@ -3018,51 +2999,96 @@ async def generate_cases_from_testpoints(
             return json.loads(json_match.group())
         return None
 
+    MAX_CONCURRENT = 3
+
     async def generate():
         import base64
         try:
             total_points = len(points)
-            yield f"data: {json.dumps({'type': 'progress', 'message': f'共 {total_points} 个测试点，将分 {total_batches} 批生成用例...', 'progress': 2}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'共 {total_points} 个测试点，将分 {total_batches} 批并发生成用例（并发数 {min(MAX_CONCURRENT, total_batches)}）...', 'progress': 2}, ensure_ascii=False)}\n\n"
 
-            all_scenarios = []
-            tc_counter = 1
-            point_offset = 0
+            queue = asyncio.Queue()
+            semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+            batch_results = {}
+            completed_batches = 0
             priority_map = {"P0": 1, "P1": 2, "P2": 3, "P3": 4}
 
-            for batch_idx, batch_points in enumerate(point_batches):
+            tc_starts = []
+            tc_counter = 1
+            for bp in point_batches:
+                tc_starts.append(tc_counter)
+                tc_counter += len(bp) * 4
+
+            point_offsets = []
+            offset = 0
+            for bp in point_batches:
+                point_offsets.append(offset)
+                offset += len(bp)
+
+            async def run_batch(batch_idx, batch_points, tc_start, point_offset):
+                nonlocal completed_batches
                 batch_num = batch_idx + 1
-                batch_progress_start = int(5 + (batch_idx / total_batches) * 65)
-                batch_progress_end = int(5 + ((batch_idx + 1) / total_batches) * 65)
+                batch_weight = len(batch_points) / total_points
+                batch_progress_start = int(5 + (point_offset / total_points) * 65)
+                batch_progress_end = int(5 + ((point_offset + len(batch_points)) / total_points) * 65)
 
-                yield f"data: {json.dumps({'type': 'progress', 'message': f'正在生成第 {batch_num}/{total_batches} 批（测试点 {point_offset+1}-{point_offset+len(batch_points)}）...', 'progress': batch_progress_start}, ensure_ascii=False)}\n\n"
+                async with semaphore:
+                    await queue.put(f"data: {json.dumps({'type': 'progress', 'message': f'[批次 {batch_num}/{total_batches}] 开始生成（测试点 {point_offset+1}-{point_offset+len(batch_points)}）...', 'progress': batch_progress_start}, ensure_ascii=False)}\n\n")
 
-                prompt = build_batch_prompt(batch_points, point_offset, tc_counter)
+                    prompt = build_batch_prompt(batch_points, point_offset, tc_start)
+                    msg = HumanMessage(content=prompt)
+                    full_content = ""
+                    chunk_count = 0
 
-                try:
-                    full_content, chunk_texts = await call_llm_for_batch(prompt)
+                    try:
+                        async for chunk in llm.astream([msg]):
+                            if chunk.content:
+                                full_content += chunk.content
+                                chunk_count += 1
+                                if chunk_count % 3 == 0:
+                                    sub_progress = min(chunk_count / 150, 0.9)
+                                    p = int(batch_progress_start + (batch_progress_end - batch_progress_start) * sub_progress)
+                                    await queue.put(f"data: {json.dumps({'type': 'chunk', 'content': chunk.content, 'progress': min(p, batch_progress_end - 1), 'batch': batch_num, 'total_batches': total_batches}, ensure_ascii=False)}\n\n")
 
-                    for ct in chunk_texts:
-                        p = min(batch_progress_start + int((batch_progress_end - batch_progress_start) * 0.8), batch_progress_end - 2)
-                        yield f"data: {json.dumps({'type': 'chunk', 'content': ct, 'progress': p}, ensure_ascii=False)}\n\n"
+                        batch_scenarios = parse_llm_json(full_content)
+                        if not batch_scenarios:
+                            logger.warning(f"第 {batch_num} 批 JSON 解析失败，跳过")
+                            await queue.put(f"data: {json.dumps({'type': 'progress', 'message': f'[批次 {batch_num}/{total_batches}] 解析异常，已跳过', 'progress': batch_progress_end}, ensure_ascii=False)}\n\n")
+                            batch_results[batch_idx] = []
+                        else:
+                            batch_case_count = sum(len(s.get("cases", [])) for s in batch_scenarios)
+                            batch_results[batch_idx] = batch_scenarios
+                            completed_batches += 1
+                            overall = int(5 + (completed_batches / total_batches) * 65)
+                            await queue.put(f"data: {json.dumps({'type': 'progress', 'message': f'[批次 {batch_num}/{total_batches}] 完成，生成 {batch_case_count} 条用例（已完成 {completed_batches}/{total_batches}）', 'progress': overall}, ensure_ascii=False)}\n\n")
 
-                    batch_scenarios = parse_llm_json(full_content)
-                    if not batch_scenarios:
-                        logger.warning(f"第 {batch_num} 批 JSON 解析失败，跳过")
-                        yield f"data: {json.dumps({'type': 'progress', 'message': f'第 {batch_num} 批解析异常，已跳过', 'progress': batch_progress_end}, ensure_ascii=False)}\n\n"
-                        point_offset += len(batch_points)
-                        continue
+                    except Exception as batch_err:
+                        logger.error(f"第 {batch_num} 批生成失败: {batch_err}")
+                        batch_results[batch_idx] = []
+                        completed_batches += 1
+                        await queue.put(f"data: {json.dumps({'type': 'progress', 'message': f'[批次 {batch_num}/{total_batches}] 生成失败（{str(batch_err)[:80]}），已跳过', 'progress': int(5 + (completed_batches / total_batches) * 65)}, ensure_ascii=False)}\n\n")
 
-                    batch_case_count = sum(len(s.get("cases", [])) for s in batch_scenarios)
-                    all_scenarios.extend(batch_scenarios)
-                    tc_counter += batch_case_count
+            tasks = [
+                asyncio.create_task(run_batch(i, point_batches[i], tc_starts[i], point_offsets[i]))
+                for i in range(total_batches)
+            ]
 
-                    yield f"data: {json.dumps({'type': 'progress', 'message': f'第 {batch_num}/{total_batches} 批完成，生成 {batch_case_count} 条用例', 'progress': batch_progress_end}, ensure_ascii=False)}\n\n"
+            async def signal_done():
+                await asyncio.gather(*tasks)
+                await queue.put(None)
 
-                except Exception as batch_err:
-                    logger.error(f"第 {batch_num} 批生成失败: {batch_err}")
-                    yield f"data: {json.dumps({'type': 'progress', 'message': f'第 {batch_num} 批生成失败（{str(batch_err)[:80]}），已跳过', 'progress': batch_progress_end}, ensure_ascii=False)}\n\n"
+            asyncio.create_task(signal_done())
 
-                point_offset += len(batch_points)
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield event
+
+            all_scenarios = []
+            for i in range(total_batches):
+                scenarios = batch_results.get(i, [])
+                all_scenarios.extend(scenarios)
 
             if not all_scenarios:
                 yield f"data: {json.dumps({'type': 'error', 'message': '所有批次均生成失败，请检查 AI 配置后重试'}, ensure_ascii=False)}\n\n"
@@ -3071,7 +3097,7 @@ async def generate_cases_from_testpoints(
             total_cases = sum(len(s.get("cases", [])) for s in all_scenarios)
             total_scenarios_count = len(all_scenarios)
 
-            yield f"data: {json.dumps({'type': 'progress', 'message': f'全部批次完成，共 {total_cases} 条用例，正在保存...', 'progress': 75}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'全部 {total_batches} 批完成，共 {total_cases} 条用例，正在保存...', 'progress': 75}, ensure_ascii=False)}\n\n"
 
             case_set = await FunctionalCaseSet.create(
                 name=tps.name,

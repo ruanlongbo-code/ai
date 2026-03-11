@@ -302,28 +302,30 @@ AI 将自动：
     <!-- 生成用例进度弹窗 -->
     <el-dialog
       v-model="caseGenVisible"
-      title="测试点生成测试用例"
-      width="600px"
+      :title="caseGenProgress < 100 ? 'AI 正在生成测试用例...' : '测试用例生成完成'"
+      width="650px"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
-      :show-close="false"
+      :show-close="caseGenProgress >= 100"
       align-center
     >
       <div class="case-gen-dialog">
         <div class="case-gen-header">
           <el-icon v-if="caseGenProgress < 100" class="is-loading" :size="28" style="color: #8b5cf6;"><Loading /></el-icon>
           <el-icon v-else :size="28" style="color: #67c23a;"><CircleCheckFilled /></el-icon>
-          <span class="case-gen-title">{{ caseGenProgress < 100 ? 'AI 正在生成测试用例...' : '生成完成！' }}</span>
+          <span class="case-gen-title">{{ caseGenProgress < 100 ? 'AI 并发生成中...' : '生成完成！' }}</span>
+          <span v-if="caseGenProgress < 100" class="case-gen-elapsed">已耗时 {{ caseGenElapsed }}</span>
         </div>
         <el-progress
-          :percentage="caseGenProgress"
-          :stroke-width="10"
+          :percentage="Math.round(caseGenProgress)"
+          :stroke-width="12"
           :color="caseGenProgress >= 100 ? '#67c23a' : '#8b5cf6'"
-          style="margin: 16px 0;"
+          class="case-gen-progress-bar"
         />
         <p class="case-gen-msg">{{ caseGenMessage }}</p>
-        <div v-if="caseGenStreamText" class="case-gen-stream" ref="caseGenStreamRef">
-          <pre>{{ caseGenStreamText }}</pre>
+        <div class="case-gen-stream" ref="caseGenStreamRef">
+          <pre v-if="caseGenStreamText">{{ caseGenStreamText.slice(-3000) }}</pre>
+          <pre v-else class="case-gen-stream-placeholder">等待 AI 输出...</pre>
         </div>
       </div>
       <template #footer>
@@ -393,7 +395,9 @@ const caseGenProgress = ref(0)
 const caseGenMessage = ref('')
 const caseGenStreamText = ref('')
 const caseGenStreamRef = ref(null)
+const caseGenElapsed = ref('0秒')
 let caseGenAbortController = null
+let caseGenElapsedTimer = null
 
 const projectId = computed(() => projectStore.currentProject?.id)
 
@@ -599,6 +603,13 @@ const handleSaveName = async () => {
   }
 }
 
+const stopCaseGenTimer = () => {
+  if (caseGenElapsedTimer) {
+    clearInterval(caseGenElapsedTimer)
+    caseGenElapsedTimer = null
+  }
+}
+
 const handleGenerateCasesFromResult = async () => {
   if (!latestResult.value?.test_point_set_id || !projectId.value) return
   generatingCases.value = true
@@ -606,7 +617,15 @@ const handleGenerateCasesFromResult = async () => {
   caseGenProgress.value = 2
   caseGenMessage.value = '正在准备生成测试用例...'
   caseGenStreamText.value = ''
+  caseGenElapsed.value = '0秒'
   caseGenAbortController = new AbortController()
+
+  const startTime = Date.now()
+  stopCaseGenTimer()
+  caseGenElapsedTimer = setInterval(() => {
+    const sec = Math.floor((Date.now() - startTime) / 1000)
+    caseGenElapsed.value = sec < 60 ? `${sec}秒` : `${Math.floor(sec / 60)}分${sec % 60}秒`
+  }, 1000)
 
   try {
     const response = await generateCasesFromTestpoints(
@@ -623,24 +642,31 @@ const handleGenerateCasesFromResult = async () => {
     await processSSEStream(response, (data) => {
       if (data.type === 'chunk') {
         caseGenStreamText.value += data.content
-        caseGenProgress.value = Math.min(data.progress || caseGenProgress.value + 1, 70)
+        const newProgress = data.progress || caseGenProgress.value
+        caseGenProgress.value = Math.max(caseGenProgress.value, Math.min(newProgress, 74))
+        if (data.batch && data.total_batches) {
+          caseGenMessage.value = `正在生成第 ${data.batch}/${data.total_batches} 批...`
+        }
         nextTick(() => {
           if (caseGenStreamRef.value) caseGenStreamRef.value.scrollTop = caseGenStreamRef.value.scrollHeight
         })
       } else if (data.type === 'progress') {
         caseGenMessage.value = data.message || ''
-        caseGenProgress.value = data.progress || caseGenProgress.value
+        const newProgress = data.progress || caseGenProgress.value
+        caseGenProgress.value = Math.max(caseGenProgress.value, newProgress)
       } else if (data.type === 'result') {
         caseSetId = data.data?.case_set_id
         caseGenProgress.value = 100
         caseGenMessage.value = `生成完成！共 ${data.data?.total_cases} 条用例`
+        stopCaseGenTimer()
         ElMessage.success(`用例集生成完成！共 ${data.data?.total_cases} 条用例`)
       } else if (data.type === 'done') {
         caseGenProgress.value = 100
+        stopCaseGenTimer()
       } else if (data.type === 'error') {
         throw new Error(data.message || '生成失败')
       }
-    }, 300000)
+    }, 600000)
 
     if (caseSetId) {
       setTimeout(() => {
@@ -660,6 +686,7 @@ const handleGenerateCasesFromResult = async () => {
   } finally {
     generatingCases.value = false
     caseGenAbortController = null
+    stopCaseGenTimer()
   }
 }
 
@@ -1041,12 +1068,24 @@ onActivated(() => initPage())
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 .case-gen-title {
   font-size: 16px;
   font-weight: 600;
   color: #1f2937;
+}
+.case-gen-elapsed {
+  margin-left: auto;
+  font-size: 12px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+.case-gen-progress-bar {
+  margin: 12px 0;
+}
+.case-gen-progress-bar :deep(.el-progress-bar__inner) {
+  transition: width 0.6s ease;
 }
 .case-gen-msg {
   text-align: center;
@@ -1060,7 +1099,8 @@ onActivated(() => initPage())
   color: #a5f3fc;
   border-radius: 8px;
   padding: 12px;
-  max-height: 240px;
+  max-height: 260px;
+  min-height: 80px;
   overflow-y: auto;
   margin-top: 12px;
 }
@@ -1071,6 +1111,10 @@ onActivated(() => initPage())
   font-family: 'Monaco', 'Menlo', monospace;
   font-size: 12px;
   line-height: 1.5;
+}
+.case-gen-stream-placeholder {
+  color: #6b7280;
+  font-style: italic;
 }
 .case-gen-stream::-webkit-scrollbar { width: 5px; }
 .case-gen-stream::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.3); border-radius: 3px; }
