@@ -263,7 +263,7 @@ AI 将自动：
             <!-- 操作按钮区域（置顶） -->
             <div class="result-actions-top">
               <el-button @click="handleBackToInput">
-                <el-icon><Back /></el-icon> 继续生成
+                <el-icon><Back /></el-icon> 返回重新生成
               </el-button>
               <el-button type="primary" @click="goToCaseManage">
                 <el-icon><FolderOpened /></el-icon> 前往功能用例管理
@@ -298,6 +298,39 @@ AI 将自动：
         </div>
       </div>
     </div>
+
+    <!-- 生成用例进度弹窗 -->
+    <el-dialog
+      v-model="caseGenVisible"
+      title="测试点生成测试用例"
+      width="600px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+      align-center
+    >
+      <div class="case-gen-dialog">
+        <div class="case-gen-header">
+          <el-icon v-if="caseGenProgress < 100" class="is-loading" :size="28" style="color: #8b5cf6;"><Loading /></el-icon>
+          <el-icon v-else :size="28" style="color: #67c23a;"><CircleCheckFilled /></el-icon>
+          <span class="case-gen-title">{{ caseGenProgress < 100 ? 'AI 正在生成测试用例...' : '生成完成！' }}</span>
+        </div>
+        <el-progress
+          :percentage="caseGenProgress"
+          :stroke-width="10"
+          :color="caseGenProgress >= 100 ? '#67c23a' : '#8b5cf6'"
+          style="margin: 16px 0;"
+        />
+        <p class="case-gen-msg">{{ caseGenMessage }}</p>
+        <div v-if="caseGenStreamText" class="case-gen-stream" ref="caseGenStreamRef">
+          <pre>{{ caseGenStreamText }}</pre>
+        </div>
+      </div>
+      <template #footer>
+        <el-button v-if="caseGenProgress < 100" @click="handleCancelCaseGen" type="danger" plain>取消生成</el-button>
+        <el-button v-else @click="caseGenVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -354,6 +387,13 @@ const savingName = ref(false)
 const nameSaved = ref(false)
 const originalName = ref('')
 const pointsCollapsed = ref(false)
+
+const caseGenVisible = ref(false)
+const caseGenProgress = ref(0)
+const caseGenMessage = ref('')
+const caseGenStreamText = ref('')
+const caseGenStreamRef = ref(null)
+let caseGenAbortController = null
 
 const projectId = computed(() => projectStore.currentProject?.id)
 
@@ -562,8 +602,18 @@ const handleSaveName = async () => {
 const handleGenerateCasesFromResult = async () => {
   if (!latestResult.value?.test_point_set_id || !projectId.value) return
   generatingCases.value = true
+  caseGenVisible.value = true
+  caseGenProgress.value = 2
+  caseGenMessage.value = '正在准备生成测试用例...'
+  caseGenStreamText.value = ''
+  caseGenAbortController = new AbortController()
+
   try {
-    const response = await generateCasesFromTestpoints(projectId.value, latestResult.value.test_point_set_id)
+    const response = await generateCasesFromTestpoints(
+      projectId.value,
+      latestResult.value.test_point_set_id,
+      caseGenAbortController.signal
+    )
     if (!response.ok) {
       const err = await response.json().catch(() => ({}))
       throw new Error(err.detail || `HTTP ${response.status}`)
@@ -571,22 +621,50 @@ const handleGenerateCasesFromResult = async () => {
 
     let caseSetId = null
     await processSSEStream(response, (data) => {
-      if (data.type === 'result') {
+      if (data.type === 'chunk') {
+        caseGenStreamText.value += data.content
+        caseGenProgress.value = Math.min(data.progress || caseGenProgress.value + 1, 70)
+        nextTick(() => {
+          if (caseGenStreamRef.value) caseGenStreamRef.value.scrollTop = caseGenStreamRef.value.scrollHeight
+        })
+      } else if (data.type === 'progress') {
+        caseGenMessage.value = data.message || ''
+        caseGenProgress.value = data.progress || caseGenProgress.value
+      } else if (data.type === 'result') {
         caseSetId = data.data?.case_set_id
+        caseGenProgress.value = 100
+        caseGenMessage.value = `生成完成！共 ${data.data?.total_cases} 条用例`
         ElMessage.success(`用例集生成完成！共 ${data.data?.total_cases} 条用例`)
+      } else if (data.type === 'done') {
+        caseGenProgress.value = 100
       } else if (data.type === 'error') {
         throw new Error(data.message || '生成失败')
       }
-    })
+    }, 300000)
 
     if (caseSetId) {
-      router.push({ name: 'FunctionTestCaseSetDetail', params: { caseSetId } })
+      setTimeout(() => {
+        caseGenVisible.value = false
+        router.push({ name: 'FunctionTestCaseSetDetail', params: { caseSetId } })
+      }, 1500)
     }
   } catch (e) {
+    if (e.name === 'AbortError') {
+      caseGenMessage.value = '已取消生成'
+      caseGenProgress.value = 0
+      setTimeout(() => { caseGenVisible.value = false }, 1000)
+      return
+    }
+    caseGenMessage.value = `生成失败: ${e.message}`
     ElMessage.error(e.message || '生成用例集失败')
   } finally {
     generatingCases.value = false
+    caseGenAbortController = null
   }
+}
+
+const handleCancelCaseGen = () => {
+  if (caseGenAbortController) caseGenAbortController.abort()
 }
 
 const handleCancel = () => {
@@ -878,8 +956,8 @@ onActivated(() => initPage())
 }
 .name-edit-input {
   flex: 1;
-  min-width: 180px;
-  max-width: 400px;
+  min-width: 200px;
+  max-width: 600px;
 }
 :deep(.name-edit-input .el-input__inner) {
   font-size: 15px;
@@ -955,6 +1033,47 @@ onActivated(() => initPage())
 .stream-output::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.3); border-radius: 3px; }
 .doc-list::-webkit-scrollbar { width: 4px; }
 .doc-list::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.2); border-radius: 3px; }
+
+.case-gen-dialog {
+  padding: 0 4px;
+}
+.case-gen-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.case-gen-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+}
+.case-gen-msg {
+  text-align: center;
+  color: #8b5cf6;
+  font-size: 13px;
+  font-weight: 500;
+  margin: 8px 0;
+}
+.case-gen-stream {
+  background: #1a1a2e;
+  color: #a5f3fc;
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 12px;
+}
+.case-gen-stream pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.case-gen-stream::-webkit-scrollbar { width: 5px; }
+.case-gen-stream::-webkit-scrollbar-thumb { background: rgba(139, 92, 246, 0.3); border-radius: 3px; }
 
 @media (max-width: 900px) {
   .main-body {

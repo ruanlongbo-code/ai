@@ -32,19 +32,9 @@
         </div>
       </div>
       <div class="set-actions">
-        <el-button
-          type="success"
-          size="large"
-          @click="handleAiGenerateXmind"
-          :loading="aiGenerating"
-          class="ai-generate-btn"
-        >
-          <el-icon v-if="!aiGenerating"><MagicStick /></el-icon>
-          {{ aiGenerating ? 'AI 生成中...' : 'AI 生成 XMind 测试用例' }}
-        </el-button>
-        <el-button type="primary" @click="handleExportXmind">
+        <el-button type="primary" size="large" @click="handleExportXmind" class="export-xmind-btn">
           <el-icon><Download /></el-icon>
-          导出 XMind
+          导出 XMind 文件
         </el-button>
       </div>
     </div>
@@ -149,52 +139,6 @@
       :project-id="getProjectId()"
     />
 
-    <!-- AI 生成 XMind 进度弹窗 -->
-    <el-dialog
-      v-model="aiDialog.visible"
-      :title="aiDialog.result ? 'AI 生成完成' : 'AI 正在生成 XMind 测试用例...'"
-      width="650px"
-      :close-on-click-modal="false"
-      :show-close="true"
-      @close="handleCancelAiGenerate"
-    >
-      <div class="ai-generate-progress">
-        <el-progress
-          :percentage="Math.round(aiDialog.progress)"
-          :stroke-width="12"
-          :color="aiDialog.result ? '#67c23a' : '#8b5cf6'"
-          class="smooth-progress"
-        />
-        <div class="ai-progress-info">
-          <p class="ai-progress-msg">{{ aiDialog.message }}</p>
-          <span class="ai-elapsed" v-if="!aiDialog.result">已耗时 {{ aiDialog.elapsed }}</span>
-        </div>
-
-        <div v-if="aiDialog.streamText && !aiDialog.result" class="ai-stream-output" ref="aiStreamRef">
-          <pre>{{ aiDialog.streamText.slice(-2000) }}</pre>
-        </div>
-
-        <div v-if="aiDialog.result" class="ai-generate-result">
-          <el-result
-            icon="success"
-            :title="`生成完成！${aiDialog.result.total_scenarios} 个场景、${aiDialog.result.total_cases} 条用例`"
-            sub-title="已通过 AI 生成 XMind 思维导图测试用例"
-          >
-            <template #extra>
-              <el-button type="success" size="large" @click="handleDownloadAiXmind">
-                <el-icon><Download /></el-icon> 下载 XMind 文件
-              </el-button>
-              <el-button @click="aiDialog.visible = false">关闭</el-button>
-            </template>
-          </el-result>
-        </div>
-
-        <div v-if="!aiDialog.result" class="ai-generate-footer">
-          <el-button @click="handleCancelAiGenerate">取消</el-button>
-        </div>
-      </div>
-    </el-dialog>
-
     <!-- 审核弹框 -->
     <el-dialog v-model="reviewDialog.visible" title="用例审核" width="450px" :close-on-click-modal="false">
       <div v-if="reviewDialog.caseItem" style="margin-bottom: 16px;">
@@ -220,11 +164,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, computed, nextTick } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, FolderOpened, Download, MagicStick } from '@element-plus/icons-vue'
-import { getCaseSetDetail, getFunctionalCasesList, reviewFunctionalCase, deleteFunctionalCase, exportCaseSetXmind, aiGenerateXmindFromCaseSet } from '@/api/functional_test'
+import { ArrowLeft, FolderOpened, Download } from '@element-plus/icons-vue'
+import { getCaseSetDetail, getFunctionalCasesList, reviewFunctionalCase, deleteFunctionalCase, exportCaseSetXmind } from '@/api/functional_test'
 import { useProjectStore } from '@/stores'
 import FunctionalCaseDetailModal from './components/FunctionalCaseDetailModal.vue'
 
@@ -238,21 +182,6 @@ const caseSetDetail = ref({})
 const expandedScenarios = ref([])
 const showCaseDetail = ref(false)
 const selectedCaseId = ref(null)
-const aiStreamRef = ref(null)
-
-const aiGenerating = ref(false)
-const aiDialog = reactive({
-  visible: false,
-  progress: 0,
-  message: '',
-  streamText: '',
-  result: null,
-  elapsed: '0秒',
-  abortController: null,
-  timer: null,
-  smoothTimer: null,
-  realProgress: 0,
-})
 
 // 用例数据与分页（真实后端分页）
 const relatedCases = ref([])
@@ -421,151 +350,6 @@ const handleExportXmind = async () => {
   }
 }
 
-const startSmoothProgress = () => {
-  aiDialog.smoothTimer = setInterval(() => {
-    if (aiDialog.progress >= 95) return
-    const target = aiDialog.realProgress || 5
-    if (aiDialog.progress < target - 1) {
-      aiDialog.progress = Math.min(aiDialog.progress + 2, target)
-    } else if (aiDialog.progress < target) {
-      aiDialog.progress = target
-    } else if (aiDialog.progress < 70) {
-      aiDialog.progress = Math.min(aiDialog.progress + 0.3, 70)
-    }
-  }, 500)
-}
-
-const stopSmoothProgress = () => {
-  if (aiDialog.smoothTimer) {
-    clearInterval(aiDialog.smoothTimer)
-    aiDialog.smoothTimer = null
-  }
-}
-
-const handleAiGenerateXmind = async () => {
-  aiGenerating.value = true
-  aiDialog.visible = true
-  aiDialog.progress = 2
-  aiDialog.realProgress = 2
-  aiDialog.message = '正在初始化 AI 生成...'
-  aiDialog.streamText = ''
-  aiDialog.result = null
-  aiDialog.elapsed = '0秒'
-
-  const startTime = Date.now()
-  const abortController = new AbortController()
-  aiDialog.abortController = abortController
-
-  aiDialog.timer = setInterval(() => {
-    const sec = Math.floor((Date.now() - startTime) / 1000)
-    aiDialog.elapsed = sec < 60 ? `${sec}秒` : `${Math.floor(sec / 60)}分${sec % 60}秒`
-  }, 1000)
-
-  startSmoothProgress()
-
-  try {
-    const projectId = getProjectId()
-    const caseSetId = route.params.caseSetId
-    const response = await aiGenerateXmindFromCaseSet(projectId, caseSetId, abortController.signal)
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}))
-      throw new Error(err.detail || `HTTP ${response.status}`)
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const dataStr = line.slice(6).trim()
-        if (!dataStr || dataStr === '[DONE]') continue
-        try {
-          const data = JSON.parse(dataStr)
-          if (data.type === 'progress') {
-            aiDialog.message = data.message || ''
-            const p = data.progress || aiDialog.realProgress
-            aiDialog.realProgress = p
-            aiDialog.progress = Math.max(aiDialog.progress, p)
-          } else if (data.type === 'chunk') {
-            aiDialog.streamText += data.content || ''
-            const p = data.progress || aiDialog.realProgress
-            aiDialog.realProgress = p
-            aiDialog.progress = Math.max(aiDialog.progress, p)
-            nextTick(() => {
-              if (aiStreamRef.value) aiStreamRef.value.scrollTop = aiStreamRef.value.scrollHeight
-            })
-          } else if (data.type === 'result') {
-            stopSmoothProgress()
-            aiDialog.result = data.data
-            aiDialog.progress = 100
-            aiDialog.realProgress = 100
-            aiDialog.message = 'AI 生成完成！'
-          } else if (data.type === 'error') {
-            throw new Error(data.message || '生成失败')
-          }
-        } catch (e) {
-          if (e.message && !e.message.includes('JSON')) throw e
-        }
-      }
-    }
-
-    if (!aiDialog.result && aiDialog.streamText) {
-      aiDialog.message = '流已结束但未收到完成信号，请重试'
-      aiDialog.progress = 100
-    }
-  } catch (e) {
-    if (e.name === 'AbortError') return
-    ElMessage.error(e.message || 'AI 生成失败')
-    aiDialog.visible = false
-  } finally {
-    aiGenerating.value = false
-    stopSmoothProgress()
-    if (aiDialog.timer) {
-      clearInterval(aiDialog.timer)
-      aiDialog.timer = null
-    }
-    aiDialog.abortController = null
-  }
-}
-
-const handleCancelAiGenerate = () => {
-  if (aiDialog.abortController) aiDialog.abortController.abort()
-  stopSmoothProgress()
-  if (aiDialog.timer) {
-    clearInterval(aiDialog.timer)
-    aiDialog.timer = null
-  }
-  aiDialog.visible = false
-  aiGenerating.value = false
-}
-
-const handleDownloadAiXmind = () => {
-  const result = aiDialog.result
-  if (!result?.xmind_base64) return
-  const byteChars = atob(result.xmind_base64)
-  const byteNumbers = new Array(byteChars.length)
-  for (let i = 0; i < byteChars.length; i++) {
-    byteNumbers[i] = byteChars.charCodeAt(i)
-  }
-  const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/octet-stream' })
-  const url = window.URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = result.xmind_filename || `${caseSetDetail.value.name}_AI测试用例.xmind`
-  a.click()
-  window.URL.revokeObjectURL(url)
-  ElMessage.success('XMind 文件下载成功')
-}
-
 onMounted(() => {
   loadDetail()
 })
@@ -728,72 +512,14 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-.ai-generate-btn {
-  font-size: 15px;
+.export-xmind-btn {
+  font-size: 16px;
   font-weight: 600;
-  padding: 12px 24px;
+  padding: 14px 28px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #10b981, #059669);
-  border: none;
 }
-.ai-generate-btn:hover {
-  background: linear-gradient(135deg, #059669, #047857);
-}
-
-/* AI 生成进度弹窗 */
-.smooth-progress :deep(.el-progress-bar__inner) {
-  transition: width 0.6s ease;
-}
-.ai-generate-progress {
-  padding: 4px 0;
-}
-.ai-progress-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin: 10px 0;
-}
-.ai-progress-msg {
-  color: #8b5cf6;
-  font-size: 14px;
-  font-weight: 500;
-  margin: 0;
-}
-.ai-elapsed {
-  font-size: 12px;
-  color: #9ca3af;
-  flex-shrink: 0;
-}
-.ai-stream-output {
-  background: #1a1a2e;
-  color: #a5f3fc;
-  border-radius: 8px;
-  padding: 12px;
-  max-height: 220px;
-  overflow-y: auto;
-  margin: 12px 0;
-}
-.ai-stream-output pre {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: 'Monaco', 'Menlo', monospace;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.ai-stream-output::-webkit-scrollbar {
-  width: 5px;
-}
-.ai-stream-output::-webkit-scrollbar-thumb {
-  background: rgba(139, 92, 246, 0.3);
-  border-radius: 3px;
-}
-.ai-generate-result {
-  margin-top: 12px;
-}
-.ai-generate-footer {
-  text-align: center;
-  margin-top: 16px;
+.export-xmind-btn:hover {
+  opacity: 0.9;
 }
 
 @media (max-width: 768px) {

@@ -2902,8 +2902,8 @@ async def generate_cases_from_testpoints(
         project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
 ):
     """
-    根据已有测试点集，AI生成详细的测试用例并保存到用例集。
-    SSE流式返回进度和结果。
+    根据已有测试点集，AI 分批生成详细的测试用例并保存到用例集。
+    SSE 流式返回进度和结果。
     """
     project, current_user = project_user
 
@@ -2918,8 +2918,6 @@ async def generate_cases_from_testpoints(
     from config.settings import llm
     from langchain_core.messages import HumanMessage
 
-    points_text = "\n".join([f"{i+1}. {p.name}" + (f"（{p.point_type}）" if p.point_type else "") for i, p in enumerate(points)])
-
     rag_reference = ""
     try:
         from utils.knowledge_enhancer import search_rag_knowledge, get_case_set_knowledge
@@ -2932,23 +2930,22 @@ async def generate_cases_from_testpoints(
     except Exception as e:
         logger.warning(f"知识库检索失败（不影响生成）: {e}")
 
-    prompt = f"""你是资深测试架构师，擅长支付/金融系统测试。根据以下测试点列表，为每个测试点生成详细的测试用例。
+    BATCH_SIZE = 8
+    point_batches = []
+    for i in range(0, len(points), BATCH_SIZE):
+        point_batches.append(points[i:i + BATCH_SIZE])
+    total_batches = len(point_batches)
+
+    def build_batch_prompt(batch_points, start_idx, tc_start):
+        pts_text = "\n".join([
+            f"{start_idx + j + 1}. {p.name}" + (f"（{p.point_type}）" if p.point_type else "")
+            for j, p in enumerate(batch_points)
+        ])
+        return f"""你是资深测试架构师，擅长支付/金融系统测试。根据以下测试点列表，为每个测试点生成详细的测试用例。
 {rag_reference}
 
 ## 测试点列表
-{points_text}
-
-## XMind 层级结构（生成的用例将映射为此结构）
-  项目名称（根节点）
-    └── module（模块/测试分类）
-         └── [P1][TC-0001] case_title（用例标题）
-              ├── 前置条件
-              │    ├── 1.条件A
-              │    └── 2.条件B
-              ├── 测试步骤
-              │    ├── 1.步骤A  →  预期：预期结果A
-              │    └── 2.步骤B  →  预期：预期结果B
-              └── 标签：核心功能, 支付模块
+{pts_text}
 
 ## 输出格式（严格JSON，不要markdown标记）
 [
@@ -2956,7 +2953,7 @@ async def generate_cases_from_testpoints(
     "module": "模块/测试分类名称（按业务场景灵活命名，如：功能验证、账户动账逻辑、资金流转、参数校验、异常场景、状态流转）",
     "cases": [
       {{
-        "case_id": "TC-0001",
+        "case_id": "TC-{tc_start:04d}",
         "case_title": "模块名-场景描述",
         "priority": "P0/P1/P2/P3",
         "tags": ["核心功能", "相关标签"],
@@ -2972,7 +2969,7 @@ async def generate_cases_from_testpoints(
 - test_steps 和 expected_results 必须是数组，且一一对应（第N个步骤对应第N个预期结果）
 - precondition 是字符串，多条用 \\n 分隔
 - tags 是字符串数组，标注用例特征（如：核心功能、冒烟测试、边界测试、异常场景等）
-- case_id 按 TC-0001, TC-0002 格式递增编号
+- case_id 从 TC-{tc_start:04d} 开始递增编号
 
 ## 分类规则
 - module 按业务场景灵活命名，常用分类：功能验证、账户动账逻辑、资金流转、业务流程、参数校验、异常场景、状态流转、UI
@@ -2981,77 +2978,113 @@ async def generate_cases_from_testpoints(
 
 ## 用例设计原则
 - 每个测试点至少生成 2-5 个用例，覆盖：正常流程 + 边界值 + 异常场景
-- P0: 核心功能主流程，必须通过  P1: 重要分支流程和关键边界  P2: 一般边界和异常  P3: 极端情况和低频场景
+- P0: 核心功能主流程  P1: 重要分支和关键边界  P2: 一般边界和异常  P3: 极端低频场景
 - 前置条件：资金类场景必须写明各账户初始余额
 - 预期结果：写明余额变化量、状态码等可量化指标；资金类用例体现资金守恒
 - 相似用例合并，避免重复冗余
 - 前置条件、测试步骤、预期结果必须具体可操作，不能笼统"""
 
-    message = HumanMessage(content=prompt)
+    async def call_llm_for_batch(prompt_text):
+        """调用 LLM 并收集完整输出，返回 (full_content, chunk_texts)"""
+        msg = HumanMessage(content=prompt_text)
+        full_content = ""
+        chunk_texts = []
+        batch_buf = ""
+        chunk_count = 0
+        async for chunk in llm.astream([msg]):
+            if chunk.content:
+                full_content += chunk.content
+                batch_buf += chunk.content
+                chunk_count += 1
+                if chunk_count % 5 == 0:
+                    chunk_texts.append(batch_buf)
+                    batch_buf = ""
+        if batch_buf:
+            chunk_texts.append(batch_buf)
+        return full_content, chunk_texts
+
+    def parse_llm_json(raw_content):
+        """从 LLM 输出中提取 JSON 数组"""
+        clean = raw_content.strip()
+        if clean.startswith("```json"):
+            clean = clean[7:]
+        if clean.startswith("```"):
+            clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        clean = clean.strip()
+        json_match = re.search(r'\[[\s\S]*\]', clean)
+        if json_match:
+            return json.loads(json_match.group())
+        return None
 
     async def generate():
         import base64
         try:
-            yield f"data: {json.dumps({'type': 'progress', 'message': f'正在根据 {len(points)} 个测试点生成用例（可能需要1-3分钟）...', 'progress': 5}, ensure_ascii=False)}\n\n"
+            total_points = len(points)
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'共 {total_points} 个测试点，将分 {total_batches} 批生成用例...', 'progress': 2}, ensure_ascii=False)}\n\n"
 
-            full_content = ""
-            chunk_count = 0
-            batch_content = ""
-            async for chunk in llm.astream([message]):
-                if chunk.content:
-                    full_content += chunk.content
-                    batch_content += chunk.content
-                    chunk_count += 1
-                    if chunk_count % 5 == 0:
-                        progress = min(5 + int(chunk_count * 0.3), 70)
-                        yield f"data: {json.dumps({'type': 'chunk', 'content': batch_content, 'progress': progress}, ensure_ascii=False)}\n\n"
-                        batch_content = ""
+            all_scenarios = []
+            tc_counter = 1
+            point_offset = 0
+            priority_map = {"P0": 1, "P1": 2, "P2": 3, "P3": 4}
 
-            if batch_content:
-                yield f"data: {json.dumps({'type': 'chunk', 'content': batch_content, 'progress': 70}, ensure_ascii=False)}\n\n"
+            for batch_idx, batch_points in enumerate(point_batches):
+                batch_num = batch_idx + 1
+                batch_progress_start = int(5 + (batch_idx / total_batches) * 65)
+                batch_progress_end = int(5 + ((batch_idx + 1) / total_batches) * 65)
 
-            yield f"data: {json.dumps({'type': 'progress', 'message': '生成完成，正在解析并保存...', 'progress': 75}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'message': f'正在生成第 {batch_num}/{total_batches} 批（测试点 {point_offset+1}-{point_offset+len(batch_points)}）...', 'progress': batch_progress_start}, ensure_ascii=False)}\n\n"
 
-            clean = full_content.strip()
-            if clean.startswith("```json"):
-                clean = clean[7:]
-            if clean.startswith("```"):
-                clean = clean[3:]
-            if clean.endswith("```"):
-                clean = clean[:-3]
-            clean = clean.strip()
+                prompt = build_batch_prompt(batch_points, point_offset, tc_counter)
 
-            json_match = re.search(r'\[[\s\S]*\]', clean)
-            scenarios = []
-            if json_match:
                 try:
-                    scenarios = json.loads(json_match.group())
-                except json.JSONDecodeError:
-                    yield f"data: {json.dumps({'type': 'error', 'message': 'AI返回的数据解析失败，请重试'}, ensure_ascii=False)}\n\n"
-                    return
-            else:
-                yield f"data: {json.dumps({'type': 'error', 'message': 'AI未返回有效数据'}, ensure_ascii=False)}\n\n"
+                    full_content, chunk_texts = await call_llm_for_batch(prompt)
+
+                    for ct in chunk_texts:
+                        p = min(batch_progress_start + int((batch_progress_end - batch_progress_start) * 0.8), batch_progress_end - 2)
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': ct, 'progress': p}, ensure_ascii=False)}\n\n"
+
+                    batch_scenarios = parse_llm_json(full_content)
+                    if not batch_scenarios:
+                        logger.warning(f"第 {batch_num} 批 JSON 解析失败，跳过")
+                        yield f"data: {json.dumps({'type': 'progress', 'message': f'第 {batch_num} 批解析异常，已跳过', 'progress': batch_progress_end}, ensure_ascii=False)}\n\n"
+                        point_offset += len(batch_points)
+                        continue
+
+                    batch_case_count = sum(len(s.get("cases", [])) for s in batch_scenarios)
+                    all_scenarios.extend(batch_scenarios)
+                    tc_counter += batch_case_count
+
+                    yield f"data: {json.dumps({'type': 'progress', 'message': f'第 {batch_num}/{total_batches} 批完成，生成 {batch_case_count} 条用例', 'progress': batch_progress_end}, ensure_ascii=False)}\n\n"
+
+                except Exception as batch_err:
+                    logger.error(f"第 {batch_num} 批生成失败: {batch_err}")
+                    yield f"data: {json.dumps({'type': 'progress', 'message': f'第 {batch_num} 批生成失败（{str(batch_err)[:80]}），已跳过', 'progress': batch_progress_end}, ensure_ascii=False)}\n\n"
+
+                point_offset += len(batch_points)
+
+            if not all_scenarios:
+                yield f"data: {json.dumps({'type': 'error', 'message': '所有批次均生成失败，请检查 AI 配置后重试'}, ensure_ascii=False)}\n\n"
                 return
 
-            total_cases = sum(len(s.get("cases", [])) for s in scenarios)
-            total_scenarios = len(scenarios)
+            total_cases = sum(len(s.get("cases", [])) for s in all_scenarios)
+            total_scenarios_count = len(all_scenarios)
 
-            yield f"data: {json.dumps({'type': 'progress', 'message': f'生成 {total_cases} 条用例，正在保存到用例集...', 'progress': 80}, ensure_ascii=False)}\n\n"
-
-            priority_map = {"P0": 1, "P1": 2, "P2": 3, "P3": 4}
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'全部批次完成，共 {total_cases} 条用例，正在保存...', 'progress': 75}, ensure_ascii=False)}\n\n"
 
             case_set = await FunctionalCaseSet.create(
                 name=tps.name,
-                description=f"基于测试点集「{tps.name}」生成，共{total_scenarios}个场景、{total_cases}条用例",
+                description=f"基于测试点集「{tps.name}」生成，共{total_scenarios_count}个场景、{total_cases}条用例",
                 case_count=total_cases,
-                scenario_count=total_scenarios,
+                scenario_count=total_scenarios_count,
                 project_id=project_id,
                 creator_id=current_user.id,
             )
 
             saved_count = 0
             global_idx = 0
-            for s_idx, s in enumerate(scenarios):
+            for s in all_scenarios:
                 scenario_name = s.get("module", s.get("scenario", "未分类场景"))
                 for c_idx, c in enumerate(s.get("cases", []), 1):
                     global_idx += 1
@@ -3091,12 +3124,12 @@ async def generate_cases_from_testpoints(
                     )
                     saved_count += 1
 
-            yield f"data: {json.dumps({'type': 'progress', 'message': f'已保存 {saved_count} 条用例，正在生成XMind文件...', 'progress': 90}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'已保存 {saved_count} 条用例，正在生成XMind文件...', 'progress': 88}, ensure_ascii=False)}\n\n"
 
             from utils.xmind_generator import generate_xmind_file
             xmind_scenario_groups = {}
             xmind_global_idx = 0
-            for s in scenarios:
+            for s in all_scenarios:
                 s_name = s.get("module", s.get("scenario", "未分类场景"))
                 x_cases = []
                 for c in s.get("cases", []):
@@ -3111,7 +3144,10 @@ async def generate_cases_from_testpoints(
                         "expected_results": c.get("expected_results", c.get("expected_result", [])),
                         "tags": c.get("tags", []),
                     })
-                xmind_scenario_groups[s_name] = x_cases
+                if s_name in xmind_scenario_groups:
+                    xmind_scenario_groups[s_name].extend(x_cases)
+                else:
+                    xmind_scenario_groups[s_name] = x_cases
 
             xmind_bytes = generate_xmind_file(
                 requirement_title=tps.name,
@@ -3125,9 +3161,9 @@ async def generate_cases_from_testpoints(
             result_data = {
                 "case_set_id": case_set.id,
                 "case_set_name": case_set.name,
-                "scenarios": scenarios,
+                "scenarios": all_scenarios,
                 "total_cases": total_cases,
-                "total_scenarios": total_scenarios,
+                "total_scenarios": total_scenarios_count,
                 "xmind_base64": xmind_b64,
                 "xmind_filename": f"{tps.name}_测试用例.xmind",
             }
