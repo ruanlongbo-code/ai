@@ -2940,16 +2940,18 @@ async def generate_cases_from_testpoints(
             f"{start_idx + j + 1}. {p.name}" + (f"（{p.point_type}）" if p.point_type else "")
             for j, p in enumerate(batch_points)
         ])
-        return f"""资深测试架构师，根据测试点生成测试用例。{rag_reference}
+        return f"""资深测试架构师，根据测试点生成标准化测试用例。{rag_reference}
 
 ## 测试点
 {pts_text}
 
 ## 输出（严格JSON，无markdown）
-[{{"module":"分类名","cases":[{{"case_id":"TC-{tc_start:04d}","case_title":"场景描述","priority":"P0/P1/P2/P3","tags":["标签"],"precondition":"前置条件","test_steps":["步骤1","步骤2"],"expected_results":["预期1","预期2"]}}]}}]
+[{{"module":"分类名","cases":[{{"case_id":"TC-{tc_start:04d}","case_title":"场景描述","priority":"P0/P1/P2/P3","tags":["标签"],"precondition":"条件1: xxx\\n条件2: xxx","steps":[{{"action":"操作步骤描述","expected":"该步骤的预期结果"}}]}}]}}]
 
 ## 规则
-- test_steps与expected_results数组一一对应，precondition字符串(多条用\\n分隔)，case_id从TC-{tc_start:04d}递增
+- steps数组：每个元素包含action(操作步骤)和expected(该步骤的预期结果)，一一对应
+- precondition字符串，多条用"条件N: "前缀+\\n分隔
+- case_id从TC-{tc_start:04d}递增
 - 每个测试点生成2-3个用例，覆盖正常+边界+异常；相似用例合并
 - P0核心主流程 P1重要分支 P2一般边界 P3极端场景
 - 前置条件和预期结果要具体可量化（余额变化量、状态码等）
@@ -3101,21 +3103,36 @@ async def generate_cases_from_testpoints(
                     p_str = c.get("priority", "P2")
                     p_val = priority_map.get(p_str, 3)
 
-                    raw_steps = c.get("test_steps", "")
-                    if isinstance(raw_steps, list):
-                        steps_json = [{"step": i + 1, "action": str(step)} for i, step in enumerate(raw_steps)]
+                    raw_steps = c.get("steps", c.get("test_steps", ""))
+                    raw_expected = c.get("expected_results", c.get("expected_result", ""))
+                    if isinstance(raw_steps, list) and raw_steps and isinstance(raw_steps[0], dict) and "action" in raw_steps[0]:
+                        steps_json = [
+                            {"step": i + 1, "action": str(st.get("action", "")), "expected": str(st.get("expected", ""))}
+                            for i, st in enumerate(raw_steps)
+                        ]
+                        expected_text = "\n".join(st.get("expected", "") for st in raw_steps if st.get("expected"))
+                    elif isinstance(raw_steps, list):
+                        expected_list = raw_expected if isinstance(raw_expected, list) else []
+                        steps_json = [
+                            {
+                                "step": i + 1,
+                                "action": str(step),
+                                "expected": str(expected_list[i]) if i < len(expected_list) else ""
+                            }
+                            for i, step in enumerate(raw_steps)
+                        ]
+                        if isinstance(raw_expected, list):
+                            expected_text = "\n".join(str(e) for e in raw_expected)
+                        else:
+                            expected_text = str(raw_expected) if raw_expected else ""
                     elif isinstance(raw_steps, str) and raw_steps.strip():
-                        steps_json = [{"step": i + 1, "action": line.strip()}
+                        steps_json = [{"step": i + 1, "action": line.strip(), "expected": ""}
                                       for i, line in enumerate(re.split(r'\n|(?<=[\u4e00-\u9fff\w])\s*(?=\d+[\.\)、])', raw_steps))
                                       if line.strip()]
+                        expected_text = str(raw_expected) if raw_expected else ""
                     else:
                         steps_json = []
-
-                    raw_expected = c.get("expected_results", c.get("expected_result", ""))
-                    if isinstance(raw_expected, list):
-                        expected_text = "\n".join(str(e) for e in raw_expected)
-                    else:
-                        expected_text = str(raw_expected) if raw_expected else ""
+                        expected_text = ""
 
                     raw_pre = c.get("precondition", c.get("preconditions", ""))
 
@@ -3145,13 +3162,20 @@ async def generate_cases_from_testpoints(
                 for c in s.get("cases", []):
                     xmind_global_idx += 1
                     p_str = c.get("priority", "P2")
+                    raw_s = c.get("steps", c.get("test_steps", []))
+                    if isinstance(raw_s, list) and raw_s and isinstance(raw_s[0], dict) and "action" in raw_s[0]:
+                        xmind_steps = [st.get("action", "") for st in raw_s]
+                        xmind_expected = [st.get("expected", "") for st in raw_s]
+                    else:
+                        xmind_steps = raw_s if isinstance(raw_s, list) else []
+                        xmind_expected = c.get("expected_results", c.get("expected_result", []))
                     x_cases.append({
                         "case_id": c.get("case_id", f"TC-{xmind_global_idx:04d}"),
                         "case_name": c.get("case_title", c.get("case_name", f"用例{xmind_global_idx}")),
                         "priority": priority_map.get(p_str, 3) if isinstance(p_str, str) else p_str,
                         "precondition": c.get("precondition", c.get("preconditions", "")),
-                        "test_steps": c.get("test_steps", []),
-                        "expected_results": c.get("expected_results", c.get("expected_result", [])),
+                        "test_steps": xmind_steps,
+                        "expected_results": xmind_expected,
                         "tags": c.get("tags", []),
                     })
                 if s_name in xmind_scenario_groups:

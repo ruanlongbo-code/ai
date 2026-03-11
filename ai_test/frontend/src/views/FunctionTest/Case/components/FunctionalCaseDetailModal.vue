@@ -166,11 +166,11 @@
             </div>
           </div>
 
-          <!-- 3. 测试步骤 - 参考禅道布局 -->
+          <!-- 3. 测试步骤与预期结果 -->
           <div class="element-card full-width">
             <div class="element-header">
               <el-icon class="element-icon"><List /></el-icon>
-              <h4>测试步骤</h4>
+              <h4>测试步骤与预期结果</h4>
               <el-button 
                 v-if="isEditing" 
                 type="primary" 
@@ -187,6 +187,7 @@
                 <div class="steps-header">
                   <div class="step-col step-number-col">步骤</div>
                   <div class="step-col step-action-col">操作步骤</div>
+                  <div class="step-col step-expected-col">预期结果</div>
                   <div v-if="isEditing" class="step-col step-actions-col">操作</div>
                 </div>
                 
@@ -211,6 +212,17 @@
                       />
                       <div v-else class="step-content">{{ step.action || '无' }}</div>
                     </div>
+                    <div class="step-col step-expected-col">
+                      <el-input
+                        v-if="isEditing"
+                        v-model="step.expected"
+                        placeholder="请输入预期结果"
+                        type="textarea"
+                        :rows="2"
+                        resize="none"
+                      />
+                      <div v-else class="step-content step-expected-text">{{ step.expected || '-' }}</div>
+                    </div>
                     <div v-if="isEditing" class="step-col step-actions-col">
                       <el-button 
                         type="danger" 
@@ -232,21 +244,19 @@
             </div>
           </div>
 
-          
-
-          <!-- 5. 预期结果 -->
-          <div class="element-card">
+          <!-- 5. 预期结果（汇总，兼容旧数据且无步骤级预期结果时展示） -->
+          <div class="element-card" v-if="isEditing || (!hasStepExpected && caseDetail.expected_result)">
             <div class="element-header">
               <el-icon class="element-icon"><Check /></el-icon>
-              <h4>预期结果</h4>
+              <h4>预期结果（汇总）</h4>
             </div>
             <div class="element-content">
               <el-input
                 v-if="isEditing"
                 v-model="editForm.expected_result"
-                placeholder="请输入预期结果"
+                placeholder="预期结果已合并到步骤中，此处可补充总体预期"
                 type="textarea"
-                :rows="4"
+                :rows="3"
               />
               <div v-else-if="caseDetail.expected_result" class="content-text">{{ caseDetail.expected_result }}</div>
               <div v-else class="empty-content">
@@ -394,6 +404,12 @@ const caseDetail = ref(null)
 const isEditing = ref(false)
 const editForm = ref({})
 const originalData = ref({})
+
+const hasStepExpected = computed(() => {
+  const steps = caseDetail.value?.test_steps
+  if (!steps || !Array.isArray(steps)) return false
+  return steps.some(s => s.expected && s.expected.trim())
+})
 
 // 状态选项配置
 const statusOptions = ref([
@@ -975,6 +991,10 @@ const clearPreconditions = () => {
 
 .step-expected-col {
   flex: 2;
+}
+
+.step-expected-text {
+  color: #059669;
 }
 
 .step-actions-col {
