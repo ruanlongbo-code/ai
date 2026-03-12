@@ -71,6 +71,18 @@ export function uploadReviewVideo(projectId, formData) {
   })
 }
 
+export function analyzeReviewVideoStream(projectId, reviewId, signal) {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token')
+  return fetch(`${baseURL}/knowledge/${projectId}/reviews/${reviewId}/analyze`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    },
+    signal,
+  })
+}
+
 export function deleteReview(projectId, reviewId) {
   return request({ url: `/knowledge/${projectId}/reviews/${reviewId}`, method: 'delete' })
 }

@@ -1502,11 +1502,26 @@ async def extract_requirement_stream(
                     ct = ftype if ftype else "image/png"
                     image_data_list.append((b64, ct, f.filename))
 
-            # 视频文件
+            # 视频文件 - 提取关键帧并用视觉模型分析
             elif ftype.startswith("video/") or fname.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
                 video_filenames.append(f.filename)
-                # 对视频暂时只记录文件名，提示用户
-                all_text_parts.append(f"【视频文件】{f.filename}（视频内容需人工确认）")
+                try:
+                    import tempfile
+                    from utils.video_analyzer import VideoAnalyzer
+                    with tempfile.NamedTemporaryFile(suffix=os.path.splitext(f.filename)[1], delete=False) as tmp:
+                        tmp.write(file_content)
+                        tmp_path = tmp.name
+                    analyzer = VideoAnalyzer()
+                    result = analyzer.full_analysis(tmp_path, "requirement")
+                    if result.get("summary"):
+                        video_summary = result["summary"]
+                        if len(video_summary) > 4000:
+                            video_summary = video_summary[:4000] + "\n[...视频分析内容过长已截断...]"
+                        all_text_parts.append(f"【评审视频：{f.filename}（AI视觉分析 {result.get('frame_count', 0)} 帧）】\n{video_summary}")
+                    os.unlink(tmp_path)
+                except Exception as ve:
+                    logger.warning(f"视频分析失败: {ve}")
+                    all_text_parts.append(f"【视频文件】{f.filename}（视频分析失败: {str(ve)[:100]}）")
 
             # 文档文件
             else:
@@ -3567,6 +3582,24 @@ async def requirement_analysis_stream(
                 b64 = b64_mod.b64encode(file_content).decode('utf-8')
                 ct = ftype if ftype else "image/png"
                 image_data_list.append((b64, ct))
+        elif ftype.startswith("video/") or fname.endswith(('.mp4', '.avi', '.mov', '.mkv', '.webm')):
+            try:
+                import tempfile
+                from utils.video_analyzer import VideoAnalyzer
+                with tempfile.NamedTemporaryFile(suffix=os_mod.path.splitext(fname)[1], delete=False) as tmp:
+                    tmp.write(file_content)
+                    tmp_path = tmp.name
+                analyzer = VideoAnalyzer()
+                result = analyzer.full_analysis(tmp_path, "requirement")
+                if result.get("summary"):
+                    video_summary = result["summary"]
+                    if len(video_summary) > 4000:
+                        video_summary = video_summary[:4000] + "\n[...视频分析内容过长已截断...]"
+                    all_text_parts.append(f"【评审视频：{f.filename}（AI视觉分析 {result.get('frame_count', 0)} 帧）】\n{video_summary}")
+                os_mod.unlink(tmp_path)
+            except Exception as ve:
+                logger.warning(f"视频分析失败: {ve}")
+                all_text_parts.append(f"【视频文件】{f.filename}（视频分析失败: {str(ve)[:100]}）")
         else:
             ext = os_mod.path.splitext(fname)[1].lower()
             doc_exts = {'.pdf', '.docx', '.doc', '.txt', '.md'}

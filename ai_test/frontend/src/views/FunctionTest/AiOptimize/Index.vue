@@ -8,7 +8,7 @@
             <el-icon style="color: #8b5cf6; margin-right: 8px;"><Aim /></el-icon>
             AI 生成测试用例
           </h2>
-          <p class="subtitle">上传需求文档或输入文本，AI 自动提取测试点并保存到测试点集，再从测试点生成测试用例</p>
+          <p class="subtitle">上传需求文档、截图或评审视频，AI 多模态智能识别内容，自动提取测试点并生成测试用例</p>
         </div>
         <div class="flow-steps">
           <div :class="['step', currentStep >= 0 ? 'active' : '']">
@@ -128,10 +128,16 @@
               <div v-if="uploadedFiles.length" class="file-card-list">
                 <div v-for="(file, idx) in uploadedFiles" :key="idx" class="file-card">
                   <div class="file-card-inner">
-                    <el-icon class="file-card-icon"><Document /></el-icon>
+                    <el-icon class="file-card-icon" :style="{ color: fileIconColor(file.name) }">
+                      <VideoPlay v-if="isVideoFile(file.name)" />
+                      <Picture v-else-if="isImageFile(file.name)" />
+                      <Document v-else />
+                    </el-icon>
                     <div class="file-card-info">
                       <span class="file-card-name">{{ file.name }}</span>
                       <span class="file-card-size">{{ formatFileSize(file.size) }}</span>
+                      <el-tag v-if="isVideoFile(file.name)" size="small" type="warning" effect="plain" class="file-type-tag">视频</el-tag>
+                      <el-tag v-else-if="isImageFile(file.name)" size="small" type="success" effect="plain" class="file-type-tag">图片</el-tag>
                     </div>
                     <span class="file-card-remove" @click.stop="handleRemoveSingleFile(idx)">&times;</span>
                   </div>
@@ -142,21 +148,26 @@
                 :auto-upload="false"
                 :show-file-list="false"
                 :on-change="handleFileChange"
-                accept=".md,.txt,.pdf,.docx,.doc"
+                accept=".md,.txt,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.avi,.webm"
                 multiple drag
                 class="file-upload-area"
                 :class="{ 'file-upload-compact': uploadedFiles.length > 0 }"
               >
                 <template v-if="uploadedFiles.length === 0">
                   <el-icon class="el-icon--upload" :size="48"><UploadFilled /></el-icon>
-                  <div class="el-upload__text">拖拽需求文档到这里，或<em>点击上传</em></div>
+                  <div class="el-upload__text">拖拽需求文档 / 截图 / 评审视频到这里，或<em>点击上传</em></div>
+                  <div class="upload-capability-tags">
+                    <el-tag size="small" type="success" effect="plain"><el-icon><Picture /></el-icon> 多模态图像识别</el-tag>
+                    <el-tag size="small" type="warning" effect="plain"><el-icon><VideoPlay /></el-icon> 视频关键帧分析</el-tag>
+                    <el-tag size="small" effect="plain"><el-icon><Document /></el-icon> 文档嵌入图片提取</el-tag>
+                  </div>
                 </template>
                 <template v-else>
                   <el-icon class="el-icon--upload" :size="24"><UploadFilled /></el-icon>
                   <div class="el-upload__text" style="font-size: 13px;">继续添加文件</div>
                 </template>
                 <template #tip>
-                  <div class="el-upload__tip">支持 .md、.txt、.pdf、.docx 格式，最大 20MB（上传后自动入库知识库）</div>
+                  <div class="el-upload__tip">支持文档(.md/.txt/.pdf/.docx)、图片(.png/.jpg/.gif)、视频(.mp4/.mov/.avi) | 最大 20MB | AI 自动识别文档中嵌入的图片内容</div>
                 </template>
               </el-upload>
               <el-input
@@ -210,6 +221,14 @@ AI 将自动：
                 <el-icon><Share /></el-icon>
                 需求分析
               </el-button>
+              <el-button
+                type="warning"
+                size="large"
+                @click="videoDialogVisible = true"
+              >
+                <el-icon><VideoCamera /></el-icon>
+                评审视频分析
+              </el-button>
               <el-button size="large" @click="handleReset">清空重置</el-button>
             </div>
           </el-card>
@@ -232,6 +251,93 @@ AI 将自动：
             </div>
             <RequirementAnalysis v-else-if="reqAnalysisResult" :data="reqAnalysisResult" />
             <el-empty v-else description="暂无分析结果" />
+          </el-dialog>
+
+          <!-- 评审视频分析弹窗 -->
+          <el-dialog
+            v-model="videoDialogVisible"
+            title="评审视频 AI 分析"
+            width="680px"
+            :close-on-click-modal="false"
+            destroy-on-close
+            @close="handleVideoDialogClose"
+          >
+            <template v-if="!videoAnalyzing && !videoResult">
+              <el-form label-position="top" style="max-width: 560px; margin: 0 auto;">
+                <el-form-item label="评审类型">
+                  <el-radio-group v-model="videoReviewType" size="large">
+                    <el-radio-button value="requirement">需求评审</el-radio-button>
+                    <el-radio-button value="technical">技术评审</el-radio-button>
+                    <el-radio-button value="testcase">用例评审</el-radio-button>
+                  </el-radio-group>
+                </el-form-item>
+                <el-form-item label="评审标题">
+                  <el-input v-model="videoTitle" placeholder="例如：PayFi 收单需求评审" maxlength="100" show-word-limit />
+                </el-form-item>
+                <el-form-item label="上传视频">
+                  <el-upload
+                    ref="videoUploadRef"
+                    :auto-upload="false"
+                    :show-file-list="true"
+                    :limit="1"
+                    accept=".mp4,.mov,.avi,.mkv,.webm"
+                    :on-change="handleVideoFileChange"
+                    :on-remove="() => { videoFile = null }"
+                    drag
+                    class="video-upload-area"
+                  >
+                    <el-icon class="el-icon--upload" :size="36"><VideoPlay /></el-icon>
+                    <div class="el-upload__text">拖拽评审视频到这里，或<em>点击选择</em></div>
+                    <template #tip>
+                      <div class="el-upload__tip">支持 .mp4、.mov、.avi、.webm 格式，最大 500MB | AI 自动提取关键帧并识别内容</div>
+                    </template>
+                  </el-upload>
+                </el-form-item>
+              </el-form>
+            </template>
+
+            <div v-else-if="videoAnalyzing" class="video-analyzing">
+              <el-icon class="is-loading" :size="32" style="color: #e6a23c;"><Loading /></el-icon>
+              <h3>AI 正在分析评审视频...</h3>
+              <el-progress :percentage="videoProgress" :stroke-width="10" color="#e6a23c" style="margin: 16px 0; max-width: 500px;" />
+              <p class="video-step-msg">{{ videoProgressMsg }}</p>
+              <div class="video-analysis-steps">
+                <div :class="['v-step', videoStep >= 1 ? 'active' : '']">1. 提取关键帧</div>
+                <div :class="['v-step', videoStep >= 2 ? 'active' : '']">2. 视觉模型分析</div>
+                <div :class="['v-step', videoStep >= 3 ? 'active' : '']">3. 生成评审汇总</div>
+                <div :class="['v-step', videoStep >= 4 ? 'active' : '']">4. 同步知识库</div>
+              </div>
+            </div>
+
+            <div v-else-if="videoResult" class="video-result">
+              <el-alert type="success" :closable="false" style="margin-bottom: 16px;">
+                <template #title>
+                  分析完成！共提取 {{ videoResult.frame_count }} 个关键帧
+                </template>
+              </el-alert>
+              <el-collapse v-model="videoResultExpanded">
+                <el-collapse-item title="评审要点汇总" name="summary">
+                  <div class="video-summary-text" v-html="videoResult.summary?.replace(/\n/g, '<br/>')"></div>
+                </el-collapse-item>
+                <el-collapse-item v-if="videoResult.key_decisions?.length" title="关键决策" name="decisions">
+                  <ul class="video-list"><li v-for="(d, i) in videoResult.key_decisions" :key="i">{{ d }}</li></ul>
+                </el-collapse-item>
+                <el-collapse-item v-if="videoResult.action_items?.length" title="待办事项" name="actions">
+                  <ul class="video-list"><li v-for="(a, i) in videoResult.action_items" :key="i">{{ a }}</li></ul>
+                </el-collapse-item>
+              </el-collapse>
+              <div style="text-align: center; margin-top: 16px;">
+                <el-button type="primary" @click="applyVideoResultToInput">将评审要点填入补充说明</el-button>
+              </div>
+            </div>
+
+            <template #footer v-if="!videoAnalyzing && !videoResult">
+              <el-button @click="videoDialogVisible = false">取消</el-button>
+              <el-button type="warning" :disabled="!videoFile || !videoTitle.trim()" @click="handleStartVideoAnalysis">
+                <el-icon><VideoCamera /></el-icon>
+                开始分析
+              </el-button>
+            </template>
           </el-dialog>
         </div>
 
@@ -375,7 +481,7 @@ import {
   Aim, Loading, Right, Back, MagicStick, Share,
   UploadFilled, Document, Edit, FolderOpened,
   Search, Refresh, ArrowLeft, ArrowRight,
-  InfoFilled, CircleCheckFilled,
+  InfoFilled, CircleCheckFilled, Picture, VideoPlay, VideoCamera,
 } from '@element-plus/icons-vue'
 import {
   aiGenerateTestpointsStream,
@@ -387,6 +493,8 @@ import RequirementAnalysis from '@/components/RequirementAnalysis.vue'
 import {
   getKnowledgeDocuments,
   uploadFileDocument,
+  uploadReviewVideo,
+  analyzeReviewVideoStream,
 } from '@/api/knowledge'
 import { getProjectList } from '@/api/project'
 import { useProjectStore } from '@/stores'
@@ -418,6 +526,20 @@ const reqAnalysisProgress = ref(0)
 const reqAnalysisMessage = ref('')
 const reqAnalysisResult = ref(null)
 let reqAbortController = null
+
+// 评审视频分析相关
+const videoDialogVisible = ref(false)
+const videoReviewType = ref('requirement')
+const videoTitle = ref('')
+const videoFile = ref(null)
+const videoUploadRef = ref()
+const videoAnalyzing = ref(false)
+const videoProgress = ref(0)
+const videoProgressMsg = ref('')
+const videoStep = ref(0)
+const videoResult = ref(null)
+const videoResultExpanded = ref(['summary', 'decisions', 'actions'])
+let videoAbortController = null
 
 const sidebarCollapsed = ref(false)
 const loadingDocs = ref(false)
@@ -459,6 +581,14 @@ const filteredDocs = computed(() => {
   const kw = docKeyword.value.trim().toLowerCase()
   return knowledgeDocs.value.filter(d => d.title?.toLowerCase().includes(kw))
 })
+
+const isVideoFile = (name) => /\.(mp4|avi|mov|mkv|webm)$/i.test(name)
+const isImageFile = (name) => /\.(png|jpg|jpeg|gif|webp|bmp|svg)$/i.test(name)
+const fileIconColor = (name) => {
+  if (isVideoFile(name)) return '#e6a23c'
+  if (isImageFile(name)) return '#67c23a'
+  return '#8b5cf6'
+}
 
 const getPointTypeTag = (type) => {
   const map = { '正向验证': 'success', '边界测试': 'warning', '异常处理': 'danger' }
@@ -872,6 +1002,112 @@ const handleReqAnalysisClose = () => {
   reqAnalysisLoading.value = false
 }
 
+// ===== 评审视频分析 =====
+const handleVideoFileChange = (file) => {
+  videoFile.value = file.raw || file
+}
+
+const handleStartVideoAnalysis = async () => {
+  if (!projectId.value) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+  if (!videoFile.value || !videoTitle.value.trim()) return
+
+  videoAnalyzing.value = true
+  videoProgress.value = 0
+  videoProgressMsg.value = '正在上传视频...'
+  videoStep.value = 0
+  videoResult.value = null
+
+  try {
+    const formData = new FormData()
+    formData.append('file', videoFile.value)
+    formData.append('title', videoTitle.value.trim())
+    formData.append('review_type', videoReviewType.value)
+
+    const uploadRes = await uploadReviewVideo(projectId.value, formData)
+    const reviewId = uploadRes.data?.id || uploadRes.id
+    if (!reviewId) throw new Error('视频上传失败，未获取到记录ID')
+
+    videoProgress.value = 5
+    videoProgressMsg.value = '上传完成，开始分析...'
+    videoStep.value = 1
+
+    videoAbortController = new AbortController()
+    const response = await analyzeReviewVideoStream(projectId.value, reviewId, videoAbortController.signal)
+    if (!response.ok) {
+      const err = await response.text()
+      throw new Error(err || '分析请求失败')
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const evt = JSON.parse(line.slice(6))
+          if (evt.type === 'progress') {
+            videoProgress.value = evt.progress || videoProgress.value
+            videoProgressMsg.value = evt.message || ''
+            const stepMap = { extracting: 1, analyzing: 2, summarizing: 3, syncing: 4, done: 4 }
+            videoStep.value = stepMap[evt.step] || videoStep.value
+          } else if (evt.type === 'result') {
+            videoResult.value = evt.data
+            videoAnalyzing.value = false
+          } else if (evt.type === 'error') {
+            ElMessage.error(evt.message || '视频分析失败')
+            videoAnalyzing.value = false
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      ElMessage.error(e.message || '评审视频分析失败')
+    }
+  } finally {
+    videoAnalyzing.value = false
+    videoAbortController = null
+  }
+}
+
+const handleVideoDialogClose = () => {
+  if (videoAbortController) videoAbortController.abort()
+  videoAnalyzing.value = false
+  videoResult.value = null
+  videoFile.value = null
+  videoTitle.value = ''
+  videoProgress.value = 0
+  videoStep.value = 0
+}
+
+const applyVideoResultToInput = () => {
+  if (!videoResult.value?.summary) return
+  const reviewTypeNames = { requirement: '需求评审', technical: '技术评审', testcase: '用例评审' }
+  const typeName = reviewTypeNames[videoReviewType.value] || '评审'
+  const text = `【${typeName}：${videoTitle.value}】\n${videoResult.value.summary}`
+
+  if (inputMode.value === 'file') {
+    supplementText.value = supplementText.value
+      ? supplementText.value + '\n\n' + text
+      : text
+  } else {
+    inputText.value = inputText.value
+      ? inputText.value + '\n\n' + text
+      : text
+  }
+  videoDialogVisible.value = false
+  ElMessage.success('评审要点已填入补充说明，可结合需求文档一起生成测试点')
+}
+
 const handleReset = () => {
   inputText.value = ''
   supplementText.value = ''
@@ -1110,6 +1346,7 @@ onActivated(() => initPage())
   font-size: 18px; font-weight: 700; border: 1px solid #fecaca; transition: all 0.2s;
 }
 .file-card-remove:hover { background: #ef4444; color: #fff; border-color: #ef4444; }
+.file-type-tag { flex-shrink: 0; font-size: 11px; }
 
 .action-buttons {
   display: flex; gap: 12px; margin-top: 24px; padding-top: 16px;
@@ -1313,6 +1550,20 @@ onActivated(() => initPage())
   }
 }
 
+/* 上传区多模态标签 */
+.upload-capability-tags {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
+}
+.upload-capability-tags .el-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+}
+
 /* 需求分析弹窗 */
 .req-loading {
   display: flex;
@@ -1323,5 +1574,57 @@ onActivated(() => initPage())
 .req-loading h3 {
   margin: 12px 0 0;
   color: #303133;
+}
+
+/* 评审视频分析弹窗 */
+.video-upload-area {
+  width: 100%;
+}
+.video-analyzing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 30px 20px;
+}
+.video-analyzing h3 {
+  margin: 12px 0 0;
+  color: #303133;
+}
+.video-step-msg {
+  color: #909399;
+  margin: 8px 0 16px;
+  font-size: 13px;
+}
+.video-analysis-steps {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+.v-step {
+  font-size: 12px;
+  color: #c0c4cc;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: #f5f7fa;
+  transition: all 0.3s;
+}
+.v-step.active {
+  color: #e6a23c;
+  background: #fdf6ec;
+  font-weight: 600;
+}
+.video-result {
+  padding: 0 8px;
+}
+.video-summary-text {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #606266;
+}
+.video-list {
+  padding-left: 20px;
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.8;
 }
 </style>
