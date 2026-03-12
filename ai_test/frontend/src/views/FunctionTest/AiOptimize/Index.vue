@@ -155,11 +155,10 @@
               >
                 <template v-if="uploadedFiles.length === 0">
                   <el-icon class="el-icon--upload" :size="48"><UploadFilled /></el-icon>
-                  <div class="el-upload__text">拖拽需求文档 / 截图 / 评审视频到这里，或<em>点击上传</em></div>
-                  <div class="upload-capability-tags">
-                    <el-tag size="small" type="success" effect="plain"><el-icon><Picture /></el-icon> 多模态图像识别</el-tag>
-                    <el-tag size="small" type="warning" effect="plain"><el-icon><VideoPlay /></el-icon> 视频关键帧分析</el-tag>
-                    <el-tag size="small" effect="plain"><el-icon><Document /></el-icon> 文档嵌入图片提取</el-tag>
+                  <div class="el-upload__text">拖拽<b>需求文档</b>、<b>技术文档</b>、截图或视频到这里，或<em>点击上传</em></div>
+                  <div class="upload-ai-hint">
+                    <el-icon style="color: #67c23a;"><Picture /></el-icon>
+                    <span>支持多模态 AI 识别 — 自动提取文档内嵌图片、架构图、流程图等视觉内容辅助分析</span>
                   </div>
                 </template>
                 <template v-else>
@@ -167,7 +166,7 @@
                   <div class="el-upload__text" style="font-size: 13px;">继续添加文件</div>
                 </template>
                 <template #tip>
-                  <div class="el-upload__tip">支持文档(.md/.txt/.pdf/.docx)、图片(.png/.jpg/.gif)、视频(.mp4/.mov/.avi) | 最大 20MB | AI 自动识别文档中嵌入的图片内容</div>
+                  <div class="el-upload__tip">支持需求文档 / 技术文档(.md/.txt/.pdf/.docx)、截图(.png/.jpg)、评审视频(.mp4/.mov) | 最大 20MB</div>
                 </template>
               </el-upload>
               <el-input
@@ -1550,18 +1549,16 @@ onActivated(() => initPage())
   }
 }
 
-/* 上传区多模态标签 */
-.upload-capability-tags {
+/* 上传区多模态提示 */
+.upload-ai-hint {
   display: flex;
-  gap: 8px;
-  justify-content: center;
-  margin-top: 10px;
-}
-.upload-capability-tags .el-tag {
-  display: inline-flex;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 8px;
   font-size: 12px;
+  color: #8c8c8c;
+  line-height: 1.4;
 }
 
 /* 需求分析弹窗 */
