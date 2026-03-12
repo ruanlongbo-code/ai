@@ -3517,3 +3517,171 @@ async def ai_generate_xmind_from_case_set(
             "X-Accel-Buffering": "no",
         }
     )
+
+
+@router.post("/{project_id}/requirement_analysis_stream", summary="需求文档结构化分析（流式）")
+async def requirement_analysis_stream(
+        project_id: int,
+        text: Optional[str] = Form(None, description="直接输入的需求文本"),
+        files: list[UploadFile] = File(default=[], description="上传的文件（文档/图片）"),
+        knowledge_doc_ids: Optional[str] = Form(None, description="知识库文档ID列表，逗号分隔"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    从需求文档中提取结构化信息（基础信息、概要设计、详细需求）并生成业务流程图。
+    支持文本、文档（含嵌入图片提取）、图片混合输入，SSE 流式返回。
+    """
+    project, current_user = project_user
+
+    has_text = text and text.strip()
+    has_files = bool(files)
+    has_knowledge_docs = knowledge_doc_ids and knowledge_doc_ids.strip()
+
+    if not has_text and not has_files and not has_knowledge_docs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请提供需求文本、上传文件或选择知识库文档"
+        )
+
+    import base64 as b64_mod
+    import os as os_mod
+    import time as time_mod
+    from langchain_core.messages import HumanMessage
+    from config.prompts.parser.requirement_analysis import REQUIREMENT_ANALYSIS_PROMPT
+
+    all_text_parts = []
+    image_data_list = []
+
+    if has_text:
+        all_text_parts.append(f"【用户输入】\n{text.strip()}")
+
+    for f in files:
+        file_content = await f.read()
+        if not file_content:
+            continue
+        fname = (f.filename or "").lower()
+        ftype = (f.content_type or "").lower()
+
+        if ftype.startswith("image/") or fname.endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
+            if len(file_content) <= 5 * 1024 * 1024:
+                b64 = b64_mod.b64encode(file_content).decode('utf-8')
+                ct = ftype if ftype else "image/png"
+                image_data_list.append((b64, ct))
+        else:
+            ext = os_mod.path.splitext(fname)[1].lower()
+            doc_exts = {'.pdf', '.docx', '.doc', '.txt', '.md'}
+            if ext in doc_exts:
+                try:
+                    from utils.parser.requirement_document_parser import extract_text_and_images_from_file
+                    doc_text, doc_images = extract_text_and_images_from_file(f.filename, file_content)
+                    if doc_text and doc_text.strip():
+                        if len(doc_text) > 15000:
+                            doc_text = doc_text[:15000] + "\n[...文档内容过长已截断...]"
+                        all_text_parts.append(f"【文档：{f.filename}】\n{doc_text}")
+                    image_data_list.extend(doc_images)
+                except Exception as e:
+                    all_text_parts.append(f"【文档解析失败：{f.filename}】{str(e)}")
+
+    if has_knowledge_docs:
+        try:
+            from service.knowledge.models import KnowledgeDocument
+            doc_id_list = [int(x.strip()) for x in knowledge_doc_ids.split(',') if x.strip().isdigit()]
+            if doc_id_list:
+                kb_docs = await KnowledgeDocument.filter(
+                    id__in=doc_id_list, project_id=project_id, status="completed"
+                ).all()
+                for kb_doc in kb_docs:
+                    if kb_doc.content_preview and kb_doc.content_preview.strip():
+                        all_text_parts.append(f"【知识库文档：{kb_doc.title}】\n{kb_doc.content_preview}")
+        except Exception as e:
+            logger.warning(f"知识库文档获取失败: {e}")
+
+    image_data_list = image_data_list[:15]
+    merged_text = "\n\n---\n\n".join(all_text_parts) if all_text_parts else ""
+
+    from config.settings import llm
+
+    content_blocks = []
+    if merged_text and image_data_list:
+        content_blocks.append({
+            "type": "text",
+            "text": f"{REQUIREMENT_ANALYSIS_PROMPT}\n\n## 需求文档内容\n{merged_text}\n\n## 以下是文档中的图片（架构图/时序图/流程图/UI截图等），请识别并融入分析："
+        })
+        for b64, ct in image_data_list:
+            content_blocks.append({"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}"}})
+    elif image_data_list:
+        content_blocks.append({
+            "type": "text",
+            "text": f"{REQUIREMENT_ANALYSIS_PROMPT}\n\n请识别以下图片中的需求内容并提取结构化信息："
+        })
+        for b64, ct in image_data_list:
+            content_blocks.append({"type": "image_url", "image_url": {"url": f"data:{ct};base64,{b64}"}})
+    elif merged_text:
+        content_blocks.append({"type": "text", "text": f"{REQUIREMENT_ANALYSIS_PROMPT}\n\n## 需求文档内容\n{merged_text}"})
+    else:
+        raise HTTPException(status_code=400, detail="未能获取到任何有效内容")
+
+    message = HumanMessage(content=content_blocks)
+
+    async def generate():
+        try:
+            img_count = len(image_data_list)
+            img_hint = f"（含 {img_count} 张图片多模态分析）" if img_count else ""
+            yield f"data: {json.dumps({'type': 'progress', 'message': f'正在解析需求文档...{img_hint}', 'progress': 5}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'progress', 'message': 'AI 正在分析文档结构并生成流程图...', 'progress': 15}, ensure_ascii=False)}\n\n"
+
+            full_content = ""
+            chunk_count = 0
+            batch_content = ""
+            last_push_time = time_mod.time()
+
+            async for chunk in llm.astream([message]):
+                if chunk.content:
+                    full_content += chunk.content
+                    batch_content += chunk.content
+                    chunk_count += 1
+                    now = time_mod.time()
+                    if chunk_count % 5 == 0 or (now - last_push_time) >= 1.0:
+                        progress = int(18 + 52 * (1 - 1 / (1 + chunk_count / 60)))
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': batch_content, 'progress': progress}, ensure_ascii=False)}\n\n"
+                        batch_content = ""
+                        last_push_time = now
+
+            if batch_content:
+                yield f"data: {json.dumps({'type': 'chunk', 'content': batch_content, 'progress': 72}, ensure_ascii=False)}\n\n"
+
+            yield f"data: {json.dumps({'type': 'progress', 'message': '正在解析结果...', 'progress': 78}, ensure_ascii=False)}\n\n"
+
+            clean = full_content.strip()
+            if clean.startswith("```"):
+                clean = re.sub(r'^```\w*\n?', '', clean)
+                clean = re.sub(r'\n?```$', '', clean)
+
+            result_data = None
+            json_match = re.search(r'\{[\s\S]*\}', clean)
+            if json_match:
+                try:
+                    result_data = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    pass
+
+            if result_data:
+                yield f"data: {json.dumps({'type': 'progress', 'message': '分析完成', 'progress': 95}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'result', 'data': result_data}, ensure_ascii=False)}\n\n"
+            else:
+                yield f"data: {json.dumps({'type': 'error', 'message': 'AI返回结果解析失败，请重试'}, ensure_ascii=False)}\n\n"
+
+        except Exception as e:
+            logger.error(f"需求分析失败: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'message': f'分析失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "X-Accel-Buffering": "no",
+        }
+    )

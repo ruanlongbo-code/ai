@@ -414,6 +414,22 @@ export const aiGenerateTestpointsStream = (projectId, formData, signal) => {
   })
 }
 
+/**
+ * 需求文档结构化分析（SSE流式）
+ */
+export const requirementAnalysisStream = (projectId, formData, signal) => {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || '/api'
+  const token = localStorage.getItem('token')
+  return fetch(`${baseURL}/functional_test/${projectId}/requirement_analysis_stream?project_id=${projectId}`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    },
+    body: formData,
+    signal,
+  })
+}
+
 // ===== 测试点集 API =====
 
 export const getTestPointSetList = (projectId, params = {}) => {

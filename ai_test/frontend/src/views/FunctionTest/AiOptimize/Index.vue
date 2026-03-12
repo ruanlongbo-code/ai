@@ -200,9 +200,39 @@ AI 将自动：
                 <el-icon><Aim /></el-icon>
                 AI 生成测试点
               </el-button>
+              <el-button
+                type="success"
+                size="large"
+                @click="handleReqAnalysis"
+                :disabled="!canStart"
+                :loading="reqAnalysisLoading"
+              >
+                <el-icon><Share /></el-icon>
+                需求分析
+              </el-button>
               <el-button size="large" @click="handleReset">清空重置</el-button>
             </div>
           </el-card>
+
+          <!-- 需求分析结果（弹窗形式） -->
+          <el-dialog
+            v-model="reqAnalysisMode"
+            title="需求文档结构化分析"
+            width="90%"
+            top="3vh"
+            :close-on-click-modal="false"
+            destroy-on-close
+            @close="handleReqAnalysisClose"
+          >
+            <div v-if="reqAnalysisLoading" class="req-loading">
+              <el-icon class="is-loading" :size="32" style="color: #67c23a;"><Loading /></el-icon>
+              <h3>AI 正在分析需求文档...</h3>
+              <el-progress :percentage="reqAnalysisProgress" :stroke-width="10" color="#67c23a" style="margin: 16px 0; max-width: 500px;" />
+              <p style="color: #909399;">{{ reqAnalysisMessage }}</p>
+            </div>
+            <RequirementAnalysis v-else-if="reqAnalysisResult" :data="reqAnalysisResult" />
+            <el-empty v-else description="暂无分析结果" />
+          </el-dialog>
         </div>
 
         <!-- Step 1: 生成进度 -->
@@ -342,7 +372,7 @@ import { ref, computed, onMounted, onActivated, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Aim, Loading, Right, Back, MagicStick,
+  Aim, Loading, Right, Back, MagicStick, Share,
   UploadFilled, Document, Edit, FolderOpened,
   Search, Refresh, ArrowLeft, ArrowRight,
   InfoFilled, CircleCheckFilled,
@@ -351,7 +381,9 @@ import {
   aiGenerateTestpointsStream,
   generateCasesFromTestpoints,
   updateTestPointSet,
+  requirementAnalysisStream,
 } from '@/api/functional_test'
+import RequirementAnalysis from '@/components/RequirementAnalysis.vue'
 import {
   getKnowledgeDocuments,
   uploadFileDocument,
@@ -378,6 +410,14 @@ const streamOutputRef = ref(null)
 const latestResult = ref(null)
 const generatingCases = ref(false)
 let abortController = null
+
+// 需求分析相关
+const reqAnalysisMode = ref(false)
+const reqAnalysisLoading = ref(false)
+const reqAnalysisProgress = ref(0)
+const reqAnalysisMessage = ref('')
+const reqAnalysisResult = ref(null)
+let reqAbortController = null
 
 const sidebarCollapsed = ref(false)
 const loadingDocs = ref(false)
@@ -758,6 +798,79 @@ const handleCancel = () => {
 }
 
 const handleBackToInput = () => { currentStep.value = 0 }
+
+// ===== 需求分析 =====
+const handleReqAnalysis = async () => {
+  if (!projectId.value) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+  reqAnalysisMode.value = true
+  reqAnalysisLoading.value = true
+  reqAnalysisProgress.value = 0
+  reqAnalysisMessage.value = '正在准备...'
+  reqAnalysisResult.value = null
+
+  const formData = new FormData()
+  if (inputMode.value === 'file') {
+    for (const f of uploadedFiles.value) formData.append('files', f)
+    if (supplementText.value.trim()) formData.append('text', supplementText.value.trim())
+  } else {
+    formData.append('text', inputText.value.trim())
+  }
+  if (selectedDocIds.value.length > 0) {
+    formData.append('knowledge_doc_ids', selectedDocIds.value.join(','))
+  }
+
+  reqAbortController = new AbortController()
+  try {
+    const response = await requirementAnalysisStream(projectId.value, formData, reqAbortController.signal)
+    if (!response.ok) {
+      const err = await response.text()
+      throw new Error(err || '请求失败')
+    }
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const evt = JSON.parse(line.slice(6))
+          if (evt.type === 'progress') {
+            reqAnalysisProgress.value = evt.progress || 0
+            reqAnalysisMessage.value = evt.message || ''
+          } else if (evt.type === 'chunk') {
+            reqAnalysisProgress.value = evt.progress || reqAnalysisProgress.value
+          } else if (evt.type === 'result') {
+            reqAnalysisResult.value = evt.data
+            reqAnalysisLoading.value = false
+          } else if (evt.type === 'error') {
+            ElMessage.error(evt.message || '分析失败')
+            reqAnalysisLoading.value = false
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      ElMessage.error(e.message || '需求分析失败')
+    }
+  } finally {
+    reqAnalysisLoading.value = false
+    reqAbortController = null
+  }
+}
+
+const handleReqAnalysisClose = () => {
+  if (reqAbortController) reqAbortController.abort()
+  reqAnalysisLoading.value = false
+}
 
 const handleReset = () => {
   inputText.value = ''
@@ -1198,5 +1311,17 @@ onActivated(() => initPage())
     min-width: 100% !important;
     max-height: 48px;
   }
+}
+
+/* 需求分析弹窗 */
+.req-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+}
+.req-loading h3 {
+  margin: 12px 0 0;
+  color: #303133;
 }
 </style>
