@@ -40,7 +40,7 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES=4320
       - REFRESH_TOKEN_EXPIRE_DAYS=7
       - LLM_MODEL=bedrock-claude-4-5-sonnet
-      - BASE_URL=http://172.17.0.1:9801
+      - BASE_URL=http://172.17.0.1:9803
       - API_KEY=sk-shoplazza-Cluade-0819
       - FEISHU_APP_ID=cli_a997f8b06a7bd00c
       - FEISHU_APP_SECRET=lXP7VcwRiIoCO4MNXy68WdJLXPHDBFG4
