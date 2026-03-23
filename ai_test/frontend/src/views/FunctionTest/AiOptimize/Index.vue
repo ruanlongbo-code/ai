@@ -406,6 +406,13 @@ AI 将自动：
               <el-button type="success" @click="handleGenerateCasesFromResult" :loading="generatingCases">
                 <el-icon><MagicStick /></el-icon> 测试点生成测试用例
               </el-button>
+              <el-button
+                :loading="importingFeishu"
+                @click="showFeishuDialog"
+                style="background: #3370ff; color: white; border-color: #3370ff;"
+              >
+                <el-icon><Upload /></el-icon> 导入飞书用例集
+              </el-button>
             </div>
 
             <!-- 测试点列表（可折叠） -->
@@ -466,7 +473,62 @@ AI 将自动：
       </div>
       <template #footer>
         <el-button v-if="caseGenProgress < 100" @click="handleCancelCaseGen" type="danger" plain>取消生成</el-button>
-        <el-button v-else @click="caseGenVisible = false">关闭</el-button>
+        <template v-else>
+          <el-button
+            :loading="importingFeishu"
+            @click="showFeishuDialog"
+            style="background: #3370ff; color: white; border-color: #3370ff;"
+          >
+            <el-icon><Upload /></el-icon> 导入飞书用例集
+          </el-button>
+          <el-button @click="caseGenVisible = false">关闭</el-button>
+        </template>
+      </template>
+    </el-dialog>
+
+    <!-- 飞书导入弹窗 -->
+    <el-dialog v-model="feishuDialogVisible" title="导入飞书用例集" width="480px" :close-on-click-modal="false">
+      <el-alert
+        title="请输入飞书 x-token（从浏览器 DevTools → Network 中获取）"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px;"
+      />
+      <el-form label-position="top">
+        <el-form-item label="飞书 x-token" required>
+          <el-input
+            v-model="feishuToken"
+            type="textarea"
+            :rows="3"
+            placeholder="粘贴飞书项目页面请求中的 x-token..."
+          />
+        </el-form-item>
+        <el-form-item label="用例集标题（可选）">
+          <el-input v-model="feishuTitle" placeholder="不填则自动使用测试点集名称" />
+        </el-form-item>
+      </el-form>
+      <div v-if="feishuResult" style="margin-top: 12px;">
+        <el-alert type="success" :closable="false" show-icon>
+          <template #title>
+            导入成功！共 {{ feishuResult.case_count }} 条用例
+          </template>
+          <a :href="feishuResult.case_set_url" target="_blank" style="color: #3370ff;">
+            点击查看飞书用例集 →
+          </a>
+        </el-alert>
+      </div>
+      <template #footer>
+        <el-button @click="feishuDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="importingFeishu"
+          :disabled="!feishuToken.trim()"
+          @click="handleImportFeishu"
+          style="background: #3370ff; border-color: #3370ff;"
+        >
+          开始导入
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -480,13 +542,14 @@ import {
   Aim, Loading, Right, Back, MagicStick, Share,
   UploadFilled, Document, Edit, FolderOpened,
   Search, Refresh, ArrowLeft, ArrowRight,
-  InfoFilled, CircleCheckFilled, Picture, VideoPlay, VideoCamera,
+  InfoFilled, CircleCheckFilled, Picture, VideoPlay, VideoCamera, Upload,
 } from '@element-plus/icons-vue'
 import {
   aiGenerateTestpointsStream,
   generateCasesFromTestpoints,
   updateTestPointSet,
   requirementAnalysisStream,
+  importCasesToFeishu,
 } from '@/api/functional_test'
 import RequirementAnalysis from '@/components/RequirementAnalysis.vue'
 import {
@@ -517,6 +580,13 @@ const streamOutputRef = ref(null)
 const latestResult = ref(null)
 const generatingCases = ref(false)
 let abortController = null
+
+// 飞书导入相关
+const feishuDialogVisible = ref(false)
+const importingFeishu = ref(false)
+const feishuToken = ref(localStorage.getItem('feishu_x_token') || '')
+const feishuTitle = ref('')
+const feishuResult = ref(null)
 
 // 需求分析相关
 const reqAnalysisMode = ref(false)
@@ -1147,6 +1217,96 @@ const initPage = async () => {
 onMounted(() => initPage())
 
 onActivated(() => initPage())
+
+// ===== 飞书导入 =====
+const showFeishuDialog = () => {
+  feishuResult.value = null
+  feishuTitle.value = editableName.value || ''
+  feishuDialogVisible.value = true
+}
+
+const handleImportFeishu = async () => {
+  if (!feishuToken.value.trim()) {
+    ElMessage.warning('请输入飞书 x-token')
+    return
+  }
+  if (!projectId.value) {
+    ElMessage.warning('请先选择项目')
+    return
+  }
+
+  localStorage.setItem('feishu_x_token', feishuToken.value.trim())
+  importingFeishu.value = true
+  feishuResult.value = null
+
+  try {
+    const cases = []
+    const points = latestResult.value?.points || []
+    for (const point of points) {
+      if (point.cases && point.cases.length > 0) {
+        for (const c of point.cases) {
+          const steps = []
+          const expected = []
+          if (c.test_steps) {
+            for (const step of c.test_steps) {
+              if (typeof step === 'object' && step !== null) {
+                steps.push(step.action || step.step || String(step))
+                expected.push(step.expected || '')
+              } else {
+                steps.push(String(step))
+              }
+            }
+          }
+          if (!expected.length || expected.every(e => !e)) {
+            if (c.expected_result) {
+              if (Array.isArray(c.expected_result)) {
+                expected.splice(0, expected.length, ...c.expected_result)
+              } else {
+                expected.splice(0, expected.length, String(c.expected_result))
+              }
+            }
+          }
+          cases.push({
+            case_title: c.case_name || c.name || point.name,
+            module: c.scenario || point.point_type || '未分类',
+            priority: c.priority ? `P${c.priority}` : 'P2',
+            precondition: c.preconditions || c.precondition || '',
+            test_steps: steps.length ? steps : ['执行测试'],
+            expected_results: expected.length ? expected : ['验证通过'],
+          })
+        }
+      } else {
+        cases.push({
+          case_title: point.name,
+          module: point.point_type || '未分类',
+          priority: 'P2',
+          precondition: '',
+          test_steps: ['执行测试'],
+          expected_results: ['验证通过'],
+        })
+      }
+    }
+
+    if (!cases.length) {
+      ElMessage.warning('没有可导入的用例，请先生成测试用例')
+      return
+    }
+
+    const res = await importCasesToFeishu(projectId.value, {
+      cases,
+      title: feishuTitle.value.trim() || undefined,
+      feishu_token: feishuToken.value.trim(),
+    })
+    feishuResult.value = res.data
+    ElMessage.success(`导入成功！共 ${res.data.case_count} 条用例`)
+  } catch (e) {
+    console.error('飞书导入失败:', e)
+    const msg = e.response?.data?.detail || e.message || '导入失败'
+    ElMessage.error(msg)
+  } finally {
+    importingFeishu.value = false
+  }
+}
 </script>
 
 <style scoped>
