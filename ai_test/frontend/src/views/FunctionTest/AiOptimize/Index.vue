@@ -487,21 +487,22 @@ AI 将自动：
     </el-dialog>
 
     <!-- 飞书导入弹窗 -->
-    <el-dialog v-model="feishuDialogVisible" title="导入飞书用例集" width="480px" :close-on-click-modal="false">
-      <el-alert
-        title="请输入飞书 x-token（从浏览器 DevTools → Network 中获取）"
-        type="info"
-        :closable="false"
-        show-icon
-        style="margin-bottom: 16px;"
-      />
+    <el-dialog v-model="feishuDialogVisible" title="导入飞书用例集" width="520px" :close-on-click-modal="false">
+      <div style="background: #f0f7ff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.8; color: #303133;">
+        <div style="font-weight: 600; margin-bottom: 6px; color: #3370ff;">获取 x-token 步骤：</div>
+        <div>1. 打开 <a href="https://project.feishu.cn/research__development/meegoPlg/MII_642BBF6AC6C74001_test_management_use_case_set" target="_blank" style="color: #3370ff;">飞书用例管理页面</a></div>
+        <div>2. 按 F12 打开 DevTools → Network 标签</div>
+        <div>3. 在 Network 筛选框输入 <code style="background: #e8eaed; padding: 1px 4px; border-radius: 3px;">m-api</code></div>
+        <div>4. 点击页面上任意操作触发请求，点击该请求</div>
+        <div>5. 在 Request Headers 中找到 <code style="background: #e8eaed; padding: 1px 4px; border-radius: 3px;">x-token</code> 的值并复制</div>
+      </div>
       <el-form label-position="top">
         <el-form-item label="飞书 x-token" required>
           <el-input
             v-model="feishuToken"
             type="textarea"
             :rows="3"
-            placeholder="粘贴飞书项目页面请求中的 x-token..."
+            placeholder="粘贴从飞书 DevTools 获取的 x-token 值..."
           />
         </el-form-item>
         <el-form-item label="用例集标题（可选）">

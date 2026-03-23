@@ -176,10 +176,10 @@
         <el-alert title="使用说明" type="info" :closable="false" show-icon style="margin-bottom: 16px;">
           <template #default>
             <div style="font-size: 13px; line-height: 1.8;">
-              1. 在浏览器中打开飞书项目用例管理页面<br/>
-              2. 按 F12 打开开发者工具 → Network 标签<br/>
-              3. 刷新页面，找到任意请求的 Request Headers 中的 <code>x-token</code> 值<br/>
-              4. 复制粘贴到下方输入框
+              1. 打开 <a href="https://project.feishu.cn/research__development/meegoPlg/MII_642BBF6AC6C74001_test_management_use_case_set" target="_blank" style="color: #3370ff;">飞书用例管理页面</a><br/>
+              2. 按 F12 打开 DevTools → Network 标签，筛选框输入 <code>m-api</code><br/>
+              3. 点击页面上任意操作触发请求，点击该请求<br/>
+              4. 在 Request Headers 中找到 <code>x-token</code> 的值，复制粘贴到下方
             </div>
           </template>
         </el-alert>
