@@ -263,3 +263,32 @@ class FunctionalCaseResponse(BaseModel):
     creator_id: int = Field(..., description="创建人ID")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
+
+
+# ==================== 飞书用例集导入 ====================
+
+class FeishuCaseItem(BaseModel):
+    """飞书导入用例条目"""
+    case_title: str = Field(..., description="用例标题")
+    module: str = Field("未分类", description="模块路径（/分隔多层级）")
+    priority: Optional[str] = Field(None, description="优先级（P0/P1/P2/P3）")
+    precondition: str = Field("", description="前置条件")
+    test_steps: List[str] = Field(default_factory=list, description="测试步骤")
+    expected_results: List[str] = Field(default_factory=list, description="预期结果")
+
+
+class ImportToFeishuRequest(BaseModel):
+    """导入飞书用例集请求"""
+    requirement_id: Optional[int] = Field(None, description="需求ID（从数据库取用例）")
+    case_set_id: Optional[int] = Field(None, description="用例集ID（从数据库取用例）")
+    cases: Optional[List[FeishuCaseItem]] = Field(None, description="直接传入用例JSON数组")
+    title: Optional[str] = Field(None, description="用例集标题（不传则自动生成）")
+    feishu_token: str = Field(..., description="飞书 x-token")
+    dir_id: Optional[str] = Field(None, description="飞书用例管理目录ID")
+
+
+class ImportToFeishuResponse(BaseModel):
+    """导入飞书用例集响应"""
+    work_item_id: int = Field(..., description="飞书用例集工作项ID")
+    case_set_url: str = Field(..., description="飞书用例集链接")
+    case_count: int = Field(..., description="导入用例数量")

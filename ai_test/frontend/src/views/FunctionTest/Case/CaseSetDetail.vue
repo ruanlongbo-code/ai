@@ -36,6 +36,15 @@
           <el-icon><Download /></el-icon>
           导出 XMind 文件
         </el-button>
+        <el-button
+            size="large"
+            :loading="importingFeishu"
+            @click="showFeishuDialog"
+            style="background: #3370ff; color: white; border-color: #3370ff;"
+        >
+          <el-icon><Upload /></el-icon>
+          导入飞书用例集
+        </el-button>
       </div>
     </div>
 
@@ -160,6 +169,46 @@
         <el-button type="primary" @click="handleSubmitReview" :loading="reviewDialog.loading">提交</el-button>
       </template>
     </el-dialog>
+
+    <!-- 飞书导入弹窗 -->
+    <el-dialog v-model="feishuDialogVisible" title="导入飞书用例集" width="520px" :close-on-click-modal="false">
+      <div>
+        <el-alert title="使用说明" type="info" :closable="false" show-icon style="margin-bottom: 16px;">
+          <template #default>
+            <div style="font-size: 13px; line-height: 1.8;">
+              1. 在浏览器中打开飞书项目用例管理页面<br/>
+              2. 按 F12 打开开发者工具 → Network 标签<br/>
+              3. 刷新页面，找到任意请求的 Request Headers 中的 <code>x-token</code> 值<br/>
+              4. 复制粘贴到下方输入框
+            </div>
+          </template>
+        </el-alert>
+        <el-form label-width="100px">
+          <el-form-item label="飞书 Token" required>
+            <el-input v-model="feishuToken" placeholder="请输入飞书 x-token" type="password" show-password />
+          </el-form-item>
+          <el-form-item label="用例集标题">
+            <el-input v-model="feishuTitle" :placeholder="caseSetDetail.name || '自动使用用例集名称'" />
+          </el-form-item>
+        </el-form>
+        <el-alert v-if="feishuResult" :title="feishuResult.success ? '导入成功' : '导入失败'" :type="feishuResult.success ? 'success' : 'error'" show-icon style="margin-top: 12px;">
+          <template #default>
+            <div v-if="feishuResult.success">
+              共导入 {{ feishuResult.case_count }} 条用例
+              <br/><a :href="feishuResult.case_set_url" target="_blank" style="color: #409eff;">点击查看飞书用例集</a>
+            </div>
+            <div v-else>{{ feishuResult.message }}</div>
+          </template>
+        </el-alert>
+      </div>
+      <template #footer>
+        <el-button @click="feishuDialogVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="importingFeishu" :disabled="!feishuToken" @click="handleImportFeishu" style="background: #3370ff; border-color: #3370ff;">
+          <el-icon><Upload /></el-icon>
+          确认导入
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -167,8 +216,8 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, FolderOpened, Download } from '@element-plus/icons-vue'
-import { getCaseSetDetail, getFunctionalCasesList, reviewFunctionalCase, deleteFunctionalCase, exportCaseSetXmind } from '@/api/functional_test'
+import { ArrowLeft, FolderOpened, Download, Upload } from '@element-plus/icons-vue'
+import { getCaseSetDetail, getFunctionalCasesList, reviewFunctionalCase, deleteFunctionalCase, exportCaseSetXmind, importCasesToFeishu } from '@/api/functional_test'
 import { useProjectStore } from '@/stores'
 import FunctionalCaseDetailModal from './components/FunctionalCaseDetailModal.vue'
 
@@ -347,6 +396,48 @@ const handleExportXmind = async () => {
     ElMessage.success('导出成功')
   } catch (e) {
     ElMessage.error('导出失败')
+  }
+}
+
+// ===== 飞书导入 =====
+const feishuDialogVisible = ref(false)
+const importingFeishu = ref(false)
+const feishuToken = ref(localStorage.getItem('feishu_x_token') || '')
+const feishuTitle = ref('')
+const feishuResult = ref(null)
+
+const showFeishuDialog = () => {
+  feishuResult.value = null
+  feishuTitle.value = caseSetDetail.value.name || ''
+  feishuDialogVisible.value = true
+}
+
+const handleImportFeishu = async () => {
+  if (!feishuToken.value) {
+    ElMessage.warning('请输入飞书 x-token')
+    return
+  }
+  try {
+    importingFeishu.value = true
+    feishuResult.value = null
+    localStorage.setItem('feishu_x_token', feishuToken.value)
+
+    const projectId = getProjectId()
+    const caseSetId = route.params.caseSetId
+    const response = await importCasesToFeishu(projectId, {
+      case_set_id: parseInt(caseSetId),
+      feishu_token: feishuToken.value,
+      title: feishuTitle.value || undefined,
+    })
+    const data = response.data || response
+    feishuResult.value = { success: true, case_count: data.case_count, case_set_url: data.case_set_url }
+    ElMessage.success(`成功导入 ${data.case_count} 条用例到飞书`)
+  } catch (error) {
+    const msg = error.response?.data?.detail || error.message || '导入失败'
+    feishuResult.value = { success: false, message: msg }
+    ElMessage.error(msg)
+  } finally {
+    importingFeishu.value = false
   }
 }
 

@@ -46,6 +46,7 @@ services:
       - FEISHU_APP_SECRET=lXP7VcwRiIoCO4MNXy68WdJLXPHDBFG4
       - FEISHU_PROJECT_KEY=research__development
       - FEISHU_MCP_KEY=m-42d1d9e6-efdb-488a-8509-87facc5f43e2
+      - FEISHU_CASESET_DIR_ID=7577242005904542944
       # LangSmith 链路追踪配置（可选，填写后自动开启 Agent 追踪）
       - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
       - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-true}

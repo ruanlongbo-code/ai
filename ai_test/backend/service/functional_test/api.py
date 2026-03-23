@@ -18,7 +18,8 @@ from .schemas import (RequirementCreateRequest, RequirementResponse, Requirement
     FunctionalCaseSetSimple, FunctionalCaseSetListResponse, FunctionalCaseSetDetailResponse,
     FunctionalCaseSetCreateRequest, FunctionalCaseSetUpdateRequest, ScenarioCaseGroup,
     TestPointSimple, TestPointSetSimple, TestPointSetListResponse, TestPointSetDetailResponse,
-    TestPointSetUpdateRequest)
+    TestPointSetUpdateRequest,
+    ImportToFeishuRequest, ImportToFeishuResponse)
 from service.user.models import User
 from service.project.models import Project, ProjectModule
 from utils.permissions import verify_admin_or_project_owner, verify_admin_or_project_member, \
@@ -3718,3 +3719,130 @@ async def requirement_analysis_stream(
             "X-Accel-Buffering": "no",
         }
     )
+
+
+# ==================== 飞书用例集导入 ====================
+
+PRIORITY_INT_TO_STR = {1: "P0", 2: "P1", 3: "P2", 4: "P3"}
+
+
+@router.post("/{project_id}/import_to_feishu", response_model=ImportToFeishuResponse, summary="导入用例到飞书用例集")
+async def import_cases_to_feishu_api(
+        project_id: int,
+        request_data: ImportToFeishuRequest,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """
+    将测试用例导入飞书项目用例集。支持三种数据来源：
+    - requirement_id: 从需求关联的用例中提取
+    - case_set_id: 从用例集中提取
+    - cases: 直接传入 JSON 用例数组
+    """
+    project, current_user = project_user
+
+    try:
+        from utils.feishu_caseset_importer import import_cases_to_feishu
+        from config.settings import FEISHU_CASESET_DIR_ID
+
+        test_cases = []
+        title = request_data.title
+
+        if request_data.cases:
+            test_cases = [c.model_dump() for c in request_data.cases]
+            if not title:
+                title = f"导入用例集_{len(test_cases)}条"
+
+        elif request_data.requirement_id:
+            requirement = await RequirementDoc.get_or_none(id=request_data.requirement_id)
+            if not requirement:
+                raise HTTPException(status_code=404, detail="需求不存在")
+
+            cases = await FunctionalCase.filter(requirement_id=request_data.requirement_id).all()
+            if not cases:
+                raise HTTPException(status_code=400, detail="该需求下暂无测试用例")
+
+            for c in cases:
+                steps = []
+                expected = []
+                if c.test_steps:
+                    for step in c.test_steps:
+                        if isinstance(step, dict):
+                            steps.append(step.get("action", step.get("step", str(step))))
+                            expected.append(step.get("expected", ""))
+                        else:
+                            steps.append(str(step))
+
+                if not expected or all(not e for e in expected):
+                    expected = [c.expected_result or ""] if c.expected_result else [""]
+
+                test_cases.append({
+                    "case_title": c.case_name,
+                    "module": c.scenario or "未分类",
+                    "priority": PRIORITY_INT_TO_STR.get(c.priority, "P2"),
+                    "precondition": c.preconditions or "",
+                    "test_steps": steps if steps else ["执行测试"],
+                    "expected_results": expected if expected else ["验证通过"],
+                })
+
+            if not title:
+                title = requirement.title
+
+        elif request_data.case_set_id:
+            case_set = await FunctionalCaseSet.get_or_none(id=request_data.case_set_id)
+            if not case_set:
+                raise HTTPException(status_code=404, detail="用例集不存在")
+
+            cases = await FunctionalCase.filter(case_set_id=request_data.case_set_id).all()
+            if not cases:
+                raise HTTPException(status_code=400, detail="该用例集下暂无测试用例")
+
+            for c in cases:
+                steps = []
+                expected = []
+                if c.test_steps:
+                    for step in c.test_steps:
+                        if isinstance(step, dict):
+                            steps.append(step.get("action", step.get("step", str(step))))
+                            expected.append(step.get("expected", ""))
+                        else:
+                            steps.append(str(step))
+
+                if not expected or all(not e for e in expected):
+                    expected = [c.expected_result or ""] if c.expected_result else [""]
+
+                test_cases.append({
+                    "case_title": c.case_name,
+                    "module": c.scenario or "未分类",
+                    "priority": PRIORITY_INT_TO_STR.get(c.priority, "P2"),
+                    "precondition": c.preconditions or "",
+                    "test_steps": steps if steps else ["执行测试"],
+                    "expected_results": expected if expected else ["验证通过"],
+                })
+
+            if not title:
+                title = case_set.name
+        else:
+            raise HTTPException(status_code=400, detail="请提供 requirement_id、case_set_id 或 cases 参数")
+
+        if not test_cases:
+            raise HTTPException(status_code=400, detail="没有可导入的用例")
+
+        result = await import_cases_to_feishu(
+            test_cases=test_cases,
+            title=title,
+            token=request_data.feishu_token,
+            dir_id=request_data.dir_id or FEISHU_CASESET_DIR_ID,
+        )
+
+        return ImportToFeishuResponse(**result)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        logger.error(f"飞书用例集导入失败: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=502, detail=f"飞书API调用失败: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"飞书用例集导入异常: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")

@@ -635,3 +635,25 @@ export const updateTestPointSet = (projectId, tpSetId, data) => {
     data
   })
 }
+
+// ==================== 飞书用例集导入 ====================
+
+/**
+ * 导入用例到飞书用例集
+ * @param {number} projectId - 项目ID
+ * @param {Object} data - 导入参数
+ * @param {number} [data.requirement_id] - 需求ID
+ * @param {number} [data.case_set_id] - 用例集ID
+ * @param {Array} [data.cases] - 直接传入用例数组
+ * @param {string} [data.title] - 用例集标题
+ * @param {string} data.feishu_token - 飞书 x-token
+ * @param {string} [data.dir_id] - 飞书目录ID
+ */
+export const importCasesToFeishu = (projectId, data) => {
+  return request({
+    url: `/functional_test/${projectId}/import_to_feishu`,
+    method: 'post',
+    data,
+    timeout: 60000
+  })
+}

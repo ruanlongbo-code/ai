@@ -36,6 +36,9 @@ FEISHU_APP_SECRET = os.getenv('FEISHU_APP_SECRET', '')
 FEISHU_PROJECT_KEY = os.getenv('FEISHU_PROJECT_KEY', 'research__development')
 FEISHU_MCP_KEY = os.getenv('FEISHU_MCP_KEY', '')
 
+# ==============飞书用例集导入配置==============
+FEISHU_CASESET_DIR_ID = os.getenv('FEISHU_CASESET_DIR_ID', '7577242005904542944')
+
 # 对话模型
 llm: ChatOpenAI = ChatOpenAI(
     model=os.getenv('LLM_MODEL'),
