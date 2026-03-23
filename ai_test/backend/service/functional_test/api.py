@@ -3742,7 +3742,7 @@ async def import_cases_to_feishu_api(
 
     try:
         from utils.feishu_caseset_importer import import_cases_to_feishu
-        from config.settings import FEISHU_CASESET_DIR_ID
+        from config.settings import FEISHU_CASESET_DIR_ID, FEISHU_CASESET_PROJECT_KEY
 
         test_cases = []
         title = request_data.title
@@ -3832,6 +3832,7 @@ async def import_cases_to_feishu_api(
             title=title,
             token=request_data.feishu_token,
             dir_id=request_data.dir_id or FEISHU_CASESET_DIR_ID,
+            project_key=FEISHU_CASESET_PROJECT_KEY,
         )
 
         return ImportToFeishuResponse(**result)
