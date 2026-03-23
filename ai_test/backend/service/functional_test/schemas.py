@@ -283,7 +283,7 @@ class ImportToFeishuRequest(BaseModel):
     case_set_id: Optional[int] = Field(None, description="用例集ID（从数据库取用例）")
     cases: Optional[List[FeishuCaseItem]] = Field(None, description="直接传入用例JSON数组")
     title: Optional[str] = Field(None, description="用例集标题（不传则自动生成）")
-    feishu_token: str = Field(..., description="飞书 x-token")
+    feishu_token: Optional[str] = Field(None, description="飞书 x-token（可选，不传则使用服务端缓存）")
     dir_id: Optional[str] = Field(None, description="飞书用例管理目录ID")
 
 

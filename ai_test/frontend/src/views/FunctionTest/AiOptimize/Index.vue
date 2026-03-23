@@ -488,23 +488,26 @@ AI 将自动：
 
     <!-- 飞书导入弹窗 -->
     <el-dialog v-model="feishuDialogVisible" title="导入飞书用例集" width="500px" :close-on-click-modal="false">
-      <div style="background: #f0f7ff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.8; color: #303133;">
-        <div style="font-weight: 600; margin-bottom: 6px; color: #3370ff;">获取 x-token：</div>
+      <div v-if="!feishuTokenReady" style="background: #f0f7ff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.8; color: #303133;">
+        <div style="font-weight: 600; margin-bottom: 6px; color: #3370ff;">首次使用需配置 x-token（仅需一次）：</div>
         <div>1. <el-button size="small" type="primary" plain @click="openFeishuPage" style="margin: 0 2px;">打开飞书用例管理页</el-button> 并登录</div>
         <div>2. F12 → Network → 筛选 <code style="background:#e8eaed;padding:1px 4px;border-radius:3px;">m-api</code> → 点击任意请求</div>
         <div>3. Request Headers 中复制 <code style="background:#e8eaed;padding:1px 4px;border-radius:3px;">x-token</code> 的值</div>
       </div>
+      <div v-else style="background: #f0f9eb; border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; font-size: 13px; color: #67c23a;">
+        ✅ x-token 已配置，可直接导入
+      </div>
       <el-form label-position="top">
-        <el-form-item label="飞书 x-token" required>
+        <el-form-item v-if="!feishuTokenReady" label="飞书 x-token" required>
           <el-input
             v-model="feishuToken"
             type="textarea"
             :rows="2"
-            placeholder="粘贴自动复制的 x-token..."
+            placeholder="粘贴 x-token..."
           />
         </el-form-item>
         <el-form-item label="用例集标题（可选）">
-          <el-input v-model="feishuTitle" placeholder="不填则自动使用测试点集名称" />
+          <el-input v-model="feishuTitle" placeholder="不填则自动使用名称" />
         </el-form-item>
       </el-form>
       <div v-if="feishuResult" style="margin-top: 12px;">
@@ -518,11 +521,12 @@ AI 将自动：
         </el-alert>
       </div>
       <template #footer>
+        <el-button v-if="feishuTokenReady" size="small" text @click="feishuTokenReady = false">重新配置 token</el-button>
         <el-button @click="feishuDialogVisible = false">取消</el-button>
         <el-button
           type="primary"
           :loading="importingFeishu"
-          :disabled="!feishuToken.trim()"
+          :disabled="!feishuTokenReady && !feishuToken.trim()"
           @click="handleImportFeishu"
           style="background: #3370ff; border-color: #3370ff;"
         >
@@ -586,6 +590,7 @@ const importingFeishu = ref(false)
 const feishuToken = ref(localStorage.getItem('feishu_x_token') || '')
 const feishuTitle = ref('')
 const feishuResult = ref(null)
+const feishuTokenReady = ref(false)
 
 const openFeishuPage = () => {
   window.open('https://project.feishu.cn/research__development/meegoPlg/MII_642BBF6AC6C74001_test_management_use_case_set', '_blank')
@@ -1225,11 +1230,12 @@ onActivated(() => initPage())
 const showFeishuDialog = () => {
   feishuResult.value = null
   feishuTitle.value = editableName.value || ''
+  feishuTokenReady.value = !!localStorage.getItem('feishu_x_token')
   feishuDialogVisible.value = true
 }
 
 const handleImportFeishu = async () => {
-  if (!feishuToken.value.trim()) {
+  if (!feishuTokenReady.value && !feishuToken.value.trim()) {
     ElMessage.warning('请输入飞书 x-token')
     return
   }
@@ -1238,7 +1244,9 @@ const handleImportFeishu = async () => {
     return
   }
 
-  localStorage.setItem('feishu_x_token', feishuToken.value.trim())
+  if (feishuToken.value.trim()) {
+    localStorage.setItem('feishu_x_token', feishuToken.value.trim())
+  }
   importingFeishu.value = true
   feishuResult.value = null
 
@@ -1298,10 +1306,11 @@ const handleImportFeishu = async () => {
     const res = await importCasesToFeishu(projectId.value, {
       cases,
       title: feishuTitle.value.trim() || undefined,
-      feishu_token: feishuToken.value.trim(),
+      feishu_token: feishuToken.value.trim() || undefined,
     })
     feishuResult.value = res.data
     ElMessage.success(`导入成功！共 ${res.data.case_count} 条用例`)
+    feishuTokenReady.value = true
   } catch (e) {
     console.error('飞书导入失败:', e)
     const msg = e.response?.data?.detail || e.message || '导入失败'

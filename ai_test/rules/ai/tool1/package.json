@@ -1,0 +1,19 @@
+{
+  "name": "feishu-import-xmind",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "import": "npx tsx feishuImportXmind.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "jszip": "^3.10.1",
+    "playwright": "^1.50.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

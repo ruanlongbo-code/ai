@@ -1,7 +1,7 @@
 """
 功能测试模块API路由
 """
-from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form, Query
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form, Query, Request
 from fastapi.responses import StreamingResponse, Response
 from typing import Optional
 from tortoise.transactions import in_transaction
@@ -3742,7 +3742,9 @@ async def import_cases_to_feishu_api(
 
     try:
         from utils.feishu_caseset_importer import import_cases_to_feishu
-        from config.settings import FEISHU_CASESET_DIR_ID, FEISHU_CASESET_PROJECT_KEY
+        from config.settings import (FEISHU_CASESET_DIR_ID, FEISHU_CASESET_PROJECT_KEY,
+                                     FEISHU_PROJECT_PLUGIN_ID, FEISHU_PROJECT_PLUGIN_SECRET,
+                                     FEISHU_PROJECT_USER_KEY)
 
         test_cases = []
         title = request_data.title
@@ -3830,9 +3832,12 @@ async def import_cases_to_feishu_api(
         result = await import_cases_to_feishu(
             test_cases=test_cases,
             title=title,
-            token=request_data.feishu_token,
+            token=request_data.feishu_token or "",
             dir_id=request_data.dir_id or FEISHU_CASESET_DIR_ID,
             project_key=FEISHU_CASESET_PROJECT_KEY,
+            plugin_id=FEISHU_PROJECT_PLUGIN_ID,
+            plugin_secret=FEISHU_PROJECT_PLUGIN_SECRET,
+            user_key=FEISHU_PROJECT_USER_KEY,
         )
 
         return ImportToFeishuResponse(**result)
@@ -3847,3 +3852,32 @@ async def import_cases_to_feishu_api(
     except Exception as e:
         logger.error(f"飞书用例集导入异常: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+
+
+@router.post("/{project_id}/feishu_token", summary="设置飞书 x-token（缓存在服务端）")
+async def set_feishu_token(
+        project_id: int,
+        request: Request,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    body = await request.json()
+    token = body.get("token", "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token 不能为空")
+
+    from utils.feishu_plugin_auth import set_cached_x_token
+    set_cached_x_token(token)
+    return {"message": "x-token 已保存", "cached": True}
+
+
+@router.get("/{project_id}/feishu_token", summary="查询飞书 x-token 缓存状态")
+async def get_feishu_token_status(
+        project_id: int,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    from utils.feishu_plugin_auth import get_cached_x_token
+    token = get_cached_x_token()
+    return {
+        "has_token": token is not None,
+        "token_preview": f"{token[:20]}..." if token else None,
+    }
