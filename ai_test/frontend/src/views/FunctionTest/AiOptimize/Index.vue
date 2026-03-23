@@ -487,22 +487,37 @@ AI 将自动：
     </el-dialog>
 
     <!-- 飞书导入弹窗 -->
-    <el-dialog v-model="feishuDialogVisible" title="导入飞书用例集" width="520px" :close-on-click-modal="false">
-      <div style="background: #f0f7ff; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.8; color: #303133;">
-        <div style="font-weight: 600; margin-bottom: 6px; color: #3370ff;">获取 x-token 步骤：</div>
-        <div>1. 打开 <a href="https://project.feishu.cn/research__development/meegoPlg/MII_642BBF6AC6C74001_test_management_use_case_set" target="_blank" style="color: #3370ff;">飞书用例管理页面</a></div>
-        <div>2. 按 F12 打开 DevTools → Network 标签</div>
-        <div>3. 在 Network 筛选框输入 <code style="background: #e8eaed; padding: 1px 4px; border-radius: 3px;">m-api</code></div>
-        <div>4. 点击页面上任意操作触发请求，点击该请求</div>
-        <div>5. 在 Request Headers 中找到 <code style="background: #e8eaed; padding: 1px 4px; border-radius: 3px;">x-token</code> 的值并复制</div>
+    <el-dialog v-model="feishuDialogVisible" title="导入飞书用例集" width="560px" :close-on-click-modal="false">
+      <div style="background: #f0f7ff; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.8; color: #303133;">
+        <div style="font-weight: 600; margin-bottom: 8px; color: #3370ff;">一键获取 x-token：</div>
+        <div style="margin-bottom: 8px;">
+          1. 点击
+          <el-button size="small" type="primary" plain @click="openFeishuPage" style="margin: 0 4px;">
+            打开飞书用例管理页
+          </el-button>
+          登录后进入页面
+        </div>
+        <div style="margin-bottom: 8px;">2. 按 <kbd style="background:#e8eaed;padding:1px 5px;border-radius:3px;font-size:12px;">F12</kbd> 打开 DevTools → 切到 <b>Console</b> 标签</div>
+        <div style="margin-bottom: 8px;">3. 粘贴下方脚本并回车，token 会自动复制到剪贴板：</div>
+        <div style="position: relative;">
+          <pre style="background: #1e1e2e; color: #a6e3a1; padding: 10px 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; overflow-x: auto; margin: 0; white-space: pre-wrap; word-break: break-all;">{{ consoleScript }}</pre>
+          <el-button
+            size="small"
+            style="position: absolute; top: 6px; right: 6px; font-size: 11px;"
+            @click="copyConsoleScript"
+          >
+            复制脚本
+          </el-button>
+        </div>
+        <div style="margin-top: 8px; color: #909399; font-size: 12px;">4. 回到此页面，粘贴 token 到下方输入框</div>
       </div>
       <el-form label-position="top">
         <el-form-item label="飞书 x-token" required>
           <el-input
             v-model="feishuToken"
             type="textarea"
-            :rows="3"
-            placeholder="粘贴从飞书 DevTools 获取的 x-token 值..."
+            :rows="2"
+            placeholder="粘贴自动复制的 x-token..."
           />
         </el-form-item>
         <el-form-item label="用例集标题（可选）">
@@ -588,6 +603,19 @@ const importingFeishu = ref(false)
 const feishuToken = ref(localStorage.getItem('feishu_x_token') || '')
 const feishuTitle = ref('')
 const feishuResult = ref(null)
+const consoleScript = `fetch('/m-api/v1/builtin_app/test_management/mind/query?project_key=research__development&work_item_id=1&work_item_type_key=65f2fed3067c907f0466f016&mind_type=1',{headers:{'x-token':'test'}}).catch(()=>{});let _t='';const _o=XMLHttpRequest.prototype.open;const _s=XMLHttpRequest.prototype.setRequestHeader;XMLHttpRequest.prototype.setRequestHeader=function(k,v){if(k==='x-token'&&v&&!_t){_t=v;navigator.clipboard.writeText(v).then(()=>console.log('%c✅ x-token 已复制到剪贴板!','color:green;font-size:16px')).catch(()=>console.log('x-token:',v));XMLHttpRequest.prototype.setRequestHeader=_s;}return _s.apply(this,arguments);};setTimeout(()=>{if(!_t)console.log('%c⏳ 请点击页面任意位置触发请求...','color:orange;font-size:14px')},1000);`
+
+const openFeishuPage = () => {
+  window.open('https://project.feishu.cn/research__development/meegoPlg/MII_642BBF6AC6C74001_test_management_use_case_set', '_blank')
+}
+
+const copyConsoleScript = () => {
+  navigator.clipboard.writeText(consoleScript).then(() => {
+    ElMessage.success('脚本已复制，请到飞书页面的 Console 中粘贴执行')
+  }).catch(() => {
+    ElMessage.warning('复制失败，请手动选择复制')
+  })
+}
 
 // 需求分析相关
 const reqAnalysisMode = ref(false)

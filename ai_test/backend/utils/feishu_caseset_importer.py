@@ -11,6 +11,7 @@
 
 移植自 TypeScript 脚本 feishuImportXmind.ts
 """
+import asyncio
 import io
 import json
 import time
@@ -146,12 +147,19 @@ def pack_placeholder_xmind(title: str) -> bytes:
     return buf.getvalue()
 
 
+COMMON_HEADERS = {
+    "Referer": "https://projectplg.feishupkg.com/",
+    "origin": "https://projectplg.feishupkg.com",
+    "x-lark-gw": "1",
+}
+
+
 async def _internal_get(endpoint: str, params: dict[str, str], token: str) -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(
             f"{INTERNAL_API_BASE}/{endpoint}",
             params=params,
-            headers={"x-token": token, "Referer": "https://project.feishu.cn/"},
+            headers={"x-token": token, **COMMON_HEADERS},
         )
         return resp.json()
 
@@ -164,7 +172,7 @@ async def _internal_post(endpoint: str, body: dict, token: str) -> dict:
             headers={
                 "Content-Type": "application/json",
                 "x-token": token,
-                "Referer": "https://project.feishu.cn/",
+                **COMMON_HEADERS,
             },
         )
         return resp.json()
@@ -187,7 +195,7 @@ async def create_case_set(title: str, token: str, dir_id: str, project_key: str 
                 "dir_id": dir_id,
             },
             files={"file": (file_name, xmind_buf, "application/octet-stream")},
-            headers={"x-token": token, "Referer": "https://project.feishu.cn/"},
+            headers={"x-token": token, **COMMON_HEADERS},
         )
         data = resp.json()
 
@@ -207,7 +215,16 @@ async def save_mind_content(work_item_id: int, mind_content: list[dict], token: 
         "mind_type": "1",
     }
 
-    query_res = await _internal_get("mind/query", params, token)
+    max_retries = 6
+    query_res = None
+    for attempt in range(max_retries):
+        query_res = await _internal_get("mind/query", params, token)
+        if query_res.get("code") == 0:
+            break
+        logger.warning(f"mind/query 第{attempt+1}次失败: code={query_res.get('code')} msg={query_res.get('msg', '')}")
+        if attempt < max_retries - 1:
+            await asyncio.sleep(2 * (attempt + 1))
+
     if query_res.get("code") != 0:
         raise RuntimeError(f"查询脑图失败: code={query_res.get('code')} msg={query_res.get('msg', '')}")
 
