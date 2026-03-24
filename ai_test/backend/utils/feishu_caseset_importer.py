@@ -286,12 +286,14 @@ async def save_mind_content(work_item_id: int, mind_content: list[dict], token: 
         raise RuntimeError(f"保存脑图失败: code={save_res.get('code')} msg={save_res.get('msg', '')}")
 
 
-def build_case_set_url(work_item_id: int, project_key: str = "") -> str:
-    pk = project_key or FEISHU_PROJECT_KEY
+URL_PROJECT_KEY = "research__development"
+
+
+def build_case_set_url(work_item_id: int) -> str:
     parent_url = quote(
-        f"/{pk}/meegoPlg/MII_642BBF6AC6C74001_test_management_use_case_set"
+        f"/{URL_PROJECT_KEY}/meegoPlg/MII_642BBF6AC6C74001_test_management_use_case_set"
     )
-    return f"https://project.feishu.cn/{pk}/test_cases_set/detail/{work_item_id}?parentUrl={parent_url}&openScene=6"
+    return f"https://project.feishu.cn/{URL_PROJECT_KEY}/test_cases_set/detail/{work_item_id}?parentUrl={parent_url}&openScene=6"
 
 
 async def import_cases_to_feishu(
@@ -345,7 +347,7 @@ async def import_cases_to_feishu(
     await save_mind_content(work_item_id, mind_content, x_token, pk)
     logger.info("脑图写入成功")
 
-    case_set_url = build_case_set_url(work_item_id, pk)
+    case_set_url = build_case_set_url(work_item_id)
 
     return {
         "work_item_id": work_item_id,
