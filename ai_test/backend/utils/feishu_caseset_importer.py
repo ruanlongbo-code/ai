@@ -4,17 +4,19 @@
 将 JSON 格式测试用例导入飞书项目用例管理（用例集脑图）。
 
 流程：
- 1. 通过 Open API (plugin_token) 创建用例集工作项
+ 1. 通过 xmind/import 上传占位 xmind 创建用例集 → 拿到 work_item_id
  2. 将 JSON 按严格模式层级转为飞书 mind_content（带 nodeType）
  3. 调 m-api (x-token) mind/save 写入完整脑图
  4. 返回用例集链接
 
-混合认证：Open API 创建工作项（自动）+ m-api 写脑图（需 x-token）
+认证：全程使用 m-api (x-token)
 """
 import asyncio
+import io
 import json
 import time
 import logging
+import zipfile
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -24,8 +26,7 @@ from config.settings import FEISHU_PROJECT_KEY
 
 logger = logging.getLogger(__name__)
 
-CASE_SET_TYPE_KEY = "63fc6356a3568b3fd3800e88"
-CASE_SET_MIND_TYPE_KEY = "65f2fed3067c907f0466f016"
+CASE_SET_TYPE_KEY = "65f2fed3067c907f0466f016"
 INTERNAL_API_BASE = "https://project.feishu.cn/m-api/v1/builtin_app/test_management"
 OPEN_API_BASE = "https://project.feishu.cn/open_api"
 DEFAULT_DIR_ID = "7577242005904542944"
@@ -133,9 +134,7 @@ def json_to_mind_content(test_cases: list[dict]) -> list[dict]:
 
 
 COMMON_HEADERS = {
-    "Referer": "https://projectplg.feishupkg.com/",
-    "origin": "https://projectplg.feishupkg.com",
-    "x-lark-gw": "1",
+    "Referer": "https://project.feishu.cn/",
 }
 
 
@@ -163,10 +162,57 @@ async def _internal_post(endpoint: str, body: dict, token: str) -> dict:
         return resp.json()
 
 
+def _pack_placeholder_xmind(title: str) -> bytes:
+    """打包一个最小占位 .xmind 文件（zip 格式），用于 xmind/import 创建用例集"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        content = [{"id": "sheet1", "title": "Sheet 1", "rootTopic": {"id": "root", "title": title}}]
+        zf.writestr("content.json", json.dumps(content))
+        zf.writestr("metadata.json", json.dumps({"creator": {"name": "ai-test", "version": "1.0"}}))
+        zf.writestr("manifest.json", json.dumps({"file-entries": {"content.json": {}, "metadata.json": {}}}))
+    return buf.getvalue()
+
+
+async def create_case_set_via_xmind_import(
+    title: str, token: str, project_key: str = "", dir_id: str = ""
+) -> int:
+    """通过 xmind/import 上传占位文件创建用例集（与 TS 脚本一致），返回 work_item_id"""
+    pk = project_key or FEISHU_PROJECT_KEY
+    xmind_bytes = _pack_placeholder_xmind(title)
+    file_name = title.replace(" ", "_") + ".xmind"
+
+    url = f"{INTERNAL_API_BASE}/xmind/import"
+    params = {
+        "project_key": pk,
+        "work_item_type_key": CASE_SET_TYPE_KEY,
+        "mind_format": "standard",
+        "target": "online_mind",
+        "dir_id": dir_id or DEFAULT_DIR_ID,
+    }
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            url,
+            params=params,
+            files={"file": (file_name, xmind_bytes, "application/octet-stream")},
+            headers={"x-token": token, **COMMON_HEADERS},
+        )
+        data = resp.json()
+
+    if data.get("code") != 0:
+        raise RuntimeError(
+            f"xmind/import 创建用例集失败: code={data.get('code')} msg={data.get('msg', json.dumps(data))}"
+        )
+
+    work_item_id = data["data"]["case_set_work_item_id"]
+    logger.info(f"xmind/import 创建用例集成功: work_item_id={work_item_id}")
+    return int(work_item_id)
+
+
 async def create_case_set_via_open_api(
     title: str, project_key: str, plugin_id: str, plugin_secret: str, user_key: str
 ) -> int:
-    """通过 Open API (plugin_token) 创建用例集工作项，无需 x-token"""
+    """通过 Open API (plugin_token) 创建用例集工作项（备用方案）"""
     from utils.feishu_plugin_auth import get_plugin_token
 
     pk = project_key or FEISHU_PROJECT_KEY
@@ -176,7 +222,7 @@ async def create_case_set_via_open_api(
         resp = await client.post(
             f"{OPEN_API_BASE}/{pk}/work_item/create",
             json={
-                "work_item_type_key": CASE_SET_TYPE_KEY,
+                "work_item_type_key": "63fc6356a3568b3fd3800e88",
                 "field_value_pairs": [
                     {"field_key": "name", "field_value": title},
                 ],
@@ -199,46 +245,16 @@ async def create_case_set_via_open_api(
     return int(work_item_id)
 
 
-def _count_case_nodes(nodes: list[dict]) -> int:
-    """递归统计脑图树中 nodeType=11（用例标题）的节点数"""
-    count = 0
-    for node in nodes:
-        if node.get("nodeType") == NODE_TYPE_CASE_TITLE:
-            count += 1
-        count += _count_case_nodes(node.get("children", []))
-    return count
+async def save_mind_content(work_item_id: int, mind_content: list[dict], token: str, project_key: str = "") -> None:
+    """通过 m-api (x-token) 查询 mind_version 后写入完整脑图"""
+    pk = project_key or FEISHU_PROJECT_KEY
+    params = {
+        "project_key": pk,
+        "work_item_id": str(work_item_id),
+        "work_item_type_key": CASE_SET_TYPE_KEY,
+        "mind_type": "1",
+    }
 
-
-def _split_mind_content(mind_content: list[dict], batch_size: int = 20) -> list[list[dict]]:
-    """
-    将脑图分批：每批最多 batch_size 条用例。
-    按顶层分类节点拆分，保证同一分类的用例不被割裂。
-    如果单个分类超过 batch_size，该分类独占一批。
-    """
-    if _count_case_nodes(mind_content) <= batch_size:
-        return [mind_content]
-
-    batches: list[list[dict]] = []
-    current_batch: list[dict] = []
-    current_count = 0
-
-    for top_node in mind_content:
-        node_cases = _count_case_nodes([top_node])
-        if current_count + node_cases > batch_size and current_batch:
-            batches.append(current_batch)
-            current_batch = []
-            current_count = 0
-        current_batch.append(top_node)
-        current_count += node_cases
-
-    if current_batch:
-        batches.append(current_batch)
-
-    return batches
-
-
-async def _query_mind_version(params: dict, token: str) -> int:
-    """查询脑图当前版本号，带重试"""
     max_retries = 8
     query_res = None
     for attempt in range(max_retries):
@@ -252,56 +268,22 @@ async def _query_mind_version(params: dict, token: str) -> int:
     if query_res.get("code") != 0:
         raise RuntimeError(f"查询脑图失败: code={query_res.get('code')} msg={query_res.get('msg', '')}")
 
-    return query_res["data"]["mind_updated_at"]
+    mind_version = query_res["data"]["mind_updated_at"]
 
+    content_str = json.dumps(mind_content)
+    logger.info(f"mind/save payload: work_item_id={work_item_id}, mind_content长度={len(content_str)}字符")
 
-async def save_mind_content(work_item_id: int, mind_content: list[dict], token: str, project_key: str = "") -> None:
-    """
-    通过 m-api (x-token) 写入脑图。
-    当用例数量多时自动分批写入（累积式），避免飞书接口 500 错误。
-    """
-    pk = project_key or FEISHU_PROJECT_KEY
-    params = {
+    save_res = await _internal_post("mind/save", {
         "project_key": pk,
-        "work_item_id": str(work_item_id),
-        "work_item_type_key": CASE_SET_MIND_TYPE_KEY,
-        "mind_type": "1",
-    }
+        "work_item_id": work_item_id,
+        "work_item_type_key": CASE_SET_TYPE_KEY,
+        "mind_content": content_str,
+        "mind_version": mind_version,
+        "mind_type": 1,
+    }, token)
 
-    batches = _split_mind_content(mind_content, batch_size=20)
-    total_cases = _count_case_nodes(mind_content)
-    content_size = len(json.dumps(mind_content, ensure_ascii=False))
-    logger.info(f"脑图数据: {total_cases}条用例, {content_size}字符, 拆分为{len(batches)}批写入")
-
-    accumulated: list[dict] = []
-
-    for batch_idx, batch in enumerate(batches):
-        accumulated.extend(batch)
-        batch_cases = _count_case_nodes(batch)
-
-        mind_version = await _query_mind_version(params, token)
-
-        payload = {
-            "project_key": pk,
-            "work_item_id": work_item_id,
-            "work_item_type_key": CASE_SET_MIND_TYPE_KEY,
-            "mind_content": json.dumps(accumulated),
-            "mind_version": mind_version,
-            "mind_type": 1,
-        }
-        payload_size = len(json.dumps(payload, ensure_ascii=False))
-        logger.info(f"写入第{batch_idx+1}/{len(batches)}批: {batch_cases}条用例, 累计{_count_case_nodes(accumulated)}条, payload={payload_size}字符")
-
-        save_res = await _internal_post("mind/save", payload, token)
-
-        if save_res.get("code") != 0:
-            logger.error(f"第{batch_idx+1}批保存失败: code={save_res.get('code')} msg={save_res.get('msg', '')} payload_size={payload_size}")
-            raise RuntimeError(
-                f"保存脑图失败(第{batch_idx+1}/{len(batches)}批): code={save_res.get('code')} msg={save_res.get('msg', '')}"
-            )
-
-        if batch_idx < len(batches) - 1:
-            await asyncio.sleep(1)
+    if save_res.get("code") != 0:
+        raise RuntimeError(f"保存脑图失败: code={save_res.get('code')} msg={save_res.get('msg', '')}")
 
 
 def build_case_set_url(work_item_id: int, project_key: str = "") -> str:
@@ -325,9 +307,9 @@ async def import_cases_to_feishu(
     """
     一键导入入口：JSON 用例列表 → 飞书用例集。
 
-    混合认证：
-    - 创建用例集：优先用 Open API (plugin_token)，不需要 x-token
-    - 写入脑图：用 m-api (x-token)
+    认证：全程使用 m-api (x-token)
+    - 创建用例集：xmind/import 上传占位文件
+    - 写入脑图：mind/save
 
     x-token 优先使用传入的 token，没传则使用服务端缓存的。
 
@@ -353,10 +335,9 @@ async def import_cases_to_feishu(
 
     logger.info(f"开始导入飞书用例集: title={title}, cases={len(test_cases)}")
 
-    if plugin_id and plugin_secret and user_key:
-        work_item_id = await create_case_set_via_open_api(title, pk, plugin_id, plugin_secret, user_key)
-    else:
-        raise ValueError("缺少飞书插件凭证配置 (FEISHU_PROJECT_PLUGIN_ID / PLUGIN_SECRET / USER_KEY)")
+    work_item_id = await create_case_set_via_xmind_import(
+        title, x_token, pk, dir_id or DEFAULT_DIR_ID
+    )
 
     logger.info(f"用例集已创建: work_item_id={work_item_id}")
 
