@@ -402,113 +402,12 @@ export function saveDebugAsInterface(projectId, data) {
   })
 }
 
-// ==================== Phase 2: 定时任务 / CI触发 ====================
-
-// 创建定时任务
-export function createScheduledTask(projectId, data) {
-  return request({
-    url: `/api_test/${projectId}/scheduled-tasks`,
-    method: 'post',
-    data
-  })
-}
-
-// 获取定时任务列表
-export function getScheduledTasks(projectId, params = {}) {
-  return request({
-    url: `/api_test/${projectId}/scheduled-tasks`,
-    method: 'get',
-    params: {
-      page: params.page || 1,
-      page_size: params.page_size || 20
-    }
-  })
-}
-
-// 更新定时任务
-export function updateScheduledTask(projectId, taskId, data) {
-  return request({
-    url: `/api_test/${projectId}/scheduled-tasks/${taskId}`,
-    method: 'put',
-    data
-  })
-}
-
-// 删除定时任务
-export function deleteScheduledTask(projectId, taskId) {
-  return request({
-    url: `/api_test/${projectId}/scheduled-tasks/${taskId}`,
-    method: 'delete'
-  })
-}
-
-// 触发定时任务执行
-export function triggerScheduledTask(projectId, taskId) {
-  return request({
-    url: `/api_test/${projectId}/scheduled-tasks/${taskId}/trigger`,
-    method: 'post'
-  })
-}
-
-// CI Webhook触发执行
-export function ciTriggerExecution(projectId, data) {
-  return request({
-    url: `/api_test/${projectId}/ci-trigger`,
-    method: 'post',
-    data
-  })
-}
-
 // cURL导入为接口
 export function curlImportAsInterface(projectId, data) {
   return request({
     url: `/api_test/${projectId}/curl-to-interface`,
     method: 'post',
     data
-  })
-}
-
-// ==================== Phase 3: Webhook通知配置 ====================
-
-// 创建Webhook通知配置
-export function createWebhookConfig(projectId, data) {
-  return request({
-    url: `/api_test/${projectId}/webhook-configs`,
-    method: 'post',
-    data
-  })
-}
-
-// 获取Webhook通知配置列表
-export function getWebhookConfigs(projectId) {
-  return request({
-    url: `/api_test/${projectId}/webhook-configs`,
-    method: 'get'
-  })
-}
-
-// 更新Webhook通知配置
-export function updateWebhookConfig(projectId, configId, data) {
-  return request({
-    url: `/api_test/${projectId}/webhook-configs/${configId}`,
-    method: 'put',
-    data
-  })
-}
-
-// 删除Webhook通知配置
-export function deleteWebhookConfig(projectId, configId) {
-  return request({
-    url: `/api_test/${projectId}/webhook-configs/${configId}`,
-    method: 'delete'
-  })
-}
-
-// 测试Webhook连通性
-export function testWebhookConfig(projectId, configId) {
-  return request({
-    url: `/api_test/${projectId}/webhook-configs/${configId}/test`,
-    method: 'post'
   })
 }
 

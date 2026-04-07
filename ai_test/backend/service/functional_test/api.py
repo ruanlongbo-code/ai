@@ -19,7 +19,7 @@ from .schemas import (RequirementCreateRequest, RequirementResponse, Requirement
     FunctionalCaseSetCreateRequest, FunctionalCaseSetUpdateRequest, ScenarioCaseGroup,
     TestPointSimple, TestPointSetSimple, TestPointSetListResponse, TestPointSetDetailResponse,
     TestPointSetUpdateRequest,
-    ImportToFeishuRequest, ImportToFeishuResponse)
+    ImportToFeishuRequest, ImportToFeishuResponse, FeishuDirsResponse)
 from service.user.models import User
 from service.project.models import Project, ProjectModule
 from utils.permissions import verify_admin_or_project_owner, verify_admin_or_project_member, \
@@ -3726,6 +3726,32 @@ async def requirement_analysis_stream(
 PRIORITY_INT_TO_STR = {1: "P0", 2: "P1", 3: "P2", 4: "P3"}
 
 
+@router.get("/{project_id}/feishu_dirs", response_model=FeishuDirsResponse, summary="获取飞书用例管理目录列表")
+async def get_feishu_dirs_api(
+        project_id: int,
+        feishu_token: Optional[str] = Query(None, description="飞书 x-token"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    """获取飞书项目用例管理的目录树，用于选择导入目标目录"""
+    try:
+        from utils.feishu_caseset_importer import list_case_dirs
+        from utils.feishu_plugin_auth import get_cached_x_token
+        from config.settings import FEISHU_CASESET_PROJECT_KEY
+
+        token = feishu_token or get_cached_x_token()
+        if not token:
+            raise HTTPException(status_code=400, detail="缺少飞书 x-token，请先配置")
+
+        dirs = await list_case_dirs(token, FEISHU_CASESET_PROJECT_KEY)
+        return FeishuDirsResponse(dirs=dirs)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        logger.error(f"获取飞书目录失败: {e}")
+        raise HTTPException(status_code=502, detail=f"飞书API调用失败: {str(e)}")
+
+
 @router.post("/{project_id}/import_to_feishu", response_model=ImportToFeishuResponse, summary="导入用例到飞书用例集")
 async def import_cases_to_feishu_api(
         project_id: int,
@@ -3829,11 +3855,21 @@ async def import_cases_to_feishu_api(
         if not test_cases:
             raise HTTPException(status_code=400, detail="没有可导入的用例")
 
+        final_dir_id = request_data.dir_id or ""
+        if not final_dir_id and request_data.dir_name:
+            from utils.feishu_caseset_importer import resolve_dir_id_by_name
+            from utils.feishu_plugin_auth import get_cached_x_token as _get_xt
+            _token = request_data.feishu_token or _get_xt() or ""
+            if _token:
+                final_dir_id = await resolve_dir_id_by_name(
+                    request_data.dir_name, _token, FEISHU_CASESET_PROJECT_KEY
+                )
+
         result = await import_cases_to_feishu(
             test_cases=test_cases,
             title=title,
             token=request_data.feishu_token or "",
-            dir_id=request_data.dir_id or FEISHU_CASESET_DIR_ID,
+            dir_id=final_dir_id or FEISHU_CASESET_DIR_ID,
             project_key=FEISHU_CASESET_PROJECT_KEY,
             plugin_id=FEISHU_PROJECT_PLUGIN_ID,
             plugin_secret=FEISHU_PROJECT_PLUGIN_SECRET,
@@ -3881,3 +3917,169 @@ async def get_feishu_token_status(
         "has_token": token is not None,
         "token_preview": f"{token[:20]}..." if token else None,
     }
+
+
+# ==================== AI 对话助手 ====================
+
+AI_CHAT_SYSTEM_PROMPT = """你是一位资深 QA 测试专家助手，专注于帮助用户进行软件测试相关工作。你的核心能力包括：
+
+1. **需求分析**：分析 PRD / 需求文档，提取关键功能点和业务逻辑
+2. **测试用例设计**：根据需求生成结构化的测试用例（包含正向验证、边界测试、异常场景）
+3. **测试用例审查**：审查现有用例的覆盖度，给出改进建议
+4. **测试策略建议**：根据项目特点推荐合适的测试方法和优先级
+
+## 输出规范
+- 生成测试用例时，使用 Markdown 格式，每条用例包含：标题、优先级、前置条件、测试步骤、预期结果
+- 按 ### 作为每条用例的标题级别
+- 使用中文回复
+- 回答简洁专业，避免冗余
+
+## 测试用例格式示例
+### 用例标题
+- **优先级：** P0/P1/P2/P3
+- **模块：** 所属功能模块
+- **前置条件：** 需要满足的前提条件
+- **测试步骤：**
+  1. 步骤一
+  2. 步骤二
+- **预期结果：**
+  1. 预期一
+  2. 预期二
+"""
+
+
+@router.post("/{project_id}/ai_chat/send_stream", summary="AI对话（流式）")
+async def ai_chat_send_stream(
+        project_id: int,
+        request: Request,
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    project, current_user = project_user
+    body = await request.json()
+    message = body.get("message", "").strip()
+    context = body.get("context", [])
+
+    if not message:
+        raise HTTPException(status_code=400, detail="消息内容不能为空")
+
+    from config.settings import llm
+    from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
+    lc_messages = [SystemMessage(content=AI_CHAT_SYSTEM_PROMPT)]
+    for ctx in context[-10:]:
+        role = ctx.get("role", "user")
+        content = ctx.get("content", "")
+        if role == "user":
+            lc_messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            lc_messages.append(AIMessage(content=content))
+    lc_messages.append(HumanMessage(content=message))
+
+    async def generate():
+        try:
+            full_content = ""
+            async for chunk in llm.astream(lc_messages):
+                token = chunk.content or ""
+                if token:
+                    full_content += token
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': token}, ensure_ascii=False)}\n\n"
+            yield f"data: [DONE]\n\n"
+        except Exception as e:
+            logger.error(f"AI对话流式生成失败: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/{project_id}/ai_chat/send_with_files_stream", summary="AI对话（带文件，流式）")
+async def ai_chat_send_with_files_stream(
+        project_id: int,
+        message: str = Form("", description="用户消息"),
+        context: str = Form("[]", description="上下文消息JSON"),
+        files: list[UploadFile] = File(default=[], description="上传的文件"),
+        project_user: tuple[Project, User] = Depends(verify_admin_or_project_member)
+):
+    project, current_user = project_user
+
+    if not message.strip() and (not files or not any(f.filename for f in files)):
+        raise HTTPException(status_code=400, detail="请输入消息或上传文件")
+
+    import base64
+    import os
+    from config.settings import llm
+    from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+
+    all_text_parts = []
+    image_data_list = []
+
+    if message.strip():
+        all_text_parts.append(message.strip())
+
+    if files:
+        for f in files:
+            if not f.filename:
+                continue
+            fname = f.filename.lower()
+            ftype = f.content_type or ""
+            file_content = await f.read()
+            if not file_content:
+                continue
+
+            if ftype.startswith("image/") or fname.endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
+                if len(file_content) <= 10 * 1024 * 1024:
+                    b64 = base64.b64encode(file_content).decode('utf-8')
+                    ct = ftype if ftype else "image/png"
+                    image_data_list.append((b64, ct, f.filename))
+            else:
+                ext = os.path.splitext(f.filename)[1].lower()
+                if ext in {'.pdf', '.docx', '.doc', '.txt', '.md'}:
+                    try:
+                        from utils.parser.requirement_document_parser import extract_text_from_file
+                        doc_text = extract_text_from_file(f.filename, file_content)
+                        if doc_text and doc_text.strip():
+                            if len(doc_text) > 8000:
+                                doc_text = doc_text[:8000] + "\n[...文档内容过长已截断...]"
+                            all_text_parts.append(f"【文件：{f.filename}】\n{doc_text}")
+                    except Exception as e:
+                        all_text_parts.append(f"【文件解析失败：{f.filename}】{str(e)}")
+
+    merged_text = "\n\n".join(all_text_parts)
+
+    ctx_list = []
+    try:
+        ctx_list = json.loads(context) if context else []
+    except Exception:
+        ctx_list = []
+
+    lc_messages = [SystemMessage(content=AI_CHAT_SYSTEM_PROMPT)]
+    for ctx in ctx_list[-10:]:
+        role = ctx.get("role", "user")
+        content = ctx.get("content", "")
+        if role == "user":
+            lc_messages.append(HumanMessage(content=content))
+        elif role == "assistant":
+            lc_messages.append(AIMessage(content=content))
+
+    if image_data_list:
+        content_parts = [{"type": "text", "text": merged_text}]
+        for b64, ct, fname in image_data_list:
+            content_parts.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{ct};base64,{b64}"},
+            })
+        lc_messages.append(HumanMessage(content=content_parts))
+    else:
+        lc_messages.append(HumanMessage(content=merged_text))
+
+    async def generate():
+        try:
+            async for chunk in llm.astream(lc_messages):
+                token = chunk.content or ""
+                if token:
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': token}, ensure_ascii=False)}\n\n"
+            yield f"data: [DONE]\n\n"
+        except Exception as e:
+            logger.error(f"AI对话(带文件)流式生成失败: {e}\n{traceback.format_exc()}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

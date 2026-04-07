@@ -639,6 +639,20 @@ export const updateTestPointSet = (projectId, tpSetId, data) => {
 // ==================== 飞书用例集导入 ====================
 
 /**
+ * 获取飞书用例管理目录列表
+ * @param {number} projectId - 项目ID
+ * @param {string} [feishuToken] - 飞书 x-token
+ */
+export const getFeishuDirs = (projectId, feishuToken) => {
+  return request({
+    url: `/functional_test/${projectId}/feishu_dirs`,
+    method: 'get',
+    params: feishuToken ? { feishu_token: feishuToken } : {},
+    timeout: 30000
+  })
+}
+
+/**
  * 导入用例到飞书用例集
  * @param {number} projectId - 项目ID
  * @param {Object} data - 导入参数

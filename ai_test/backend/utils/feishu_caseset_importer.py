@@ -162,6 +162,75 @@ async def _internal_post(endpoint: str, body: dict, token: str) -> dict:
         return resp.json()
 
 
+async def list_case_dirs(token: str, project_key: str = "") -> list[dict]:
+    """获取飞书用例管理的目录树，返回扁平列表 [{id, name, parent_id}, ...]"""
+    pk = project_key or FEISHU_PROJECT_KEY
+
+    url = f"https://project.feishu.cn/m-api/v1/work_item/dir"
+    params = {
+        "project_key": pk,
+        "work_item_type_key": CASE_SET_TYPE_KEY,
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            url,
+            params=params,
+            headers={"x-token": token, **COMMON_HEADERS},
+        )
+        data = resp.json()
+
+    if data.get("code") != 0:
+        raise RuntimeError(
+            f"获取目录列表失败: code={data.get('code')} msg={data.get('msg', json.dumps(data))}"
+        )
+
+    def _flatten(nodes: list[dict], parent_id: str = "") -> list[dict]:
+        result = []
+        for node in nodes:
+            result.append({
+                "id": str(node.get("id", "")),
+                "name": node.get("name", ""),
+                "parent_id": parent_id,
+            })
+            children = node.get("children") or node.get("sub_dirs") or []
+            if children:
+                result.extend(_flatten(children, str(node.get("id", ""))))
+        return result
+
+    raw_dirs = data.get("data", [])
+    if isinstance(raw_dirs, dict):
+        raw_dirs = raw_dirs.get("dirs") or raw_dirs.get("data") or []
+    return _flatten(raw_dirs)
+
+
+async def resolve_dir_id_by_name(dir_name: str, token: str, project_key: str = "") -> str:
+    """根据目录名称查找 dir_id，支持用 '/' 分隔的路径匹配"""
+    dirs = await list_case_dirs(token, project_key)
+    if not dirs:
+        raise ValueError("获取飞书目录列表为空")
+
+    parts = [p.strip() for p in dir_name.split("/") if p.strip()]
+
+    if len(parts) == 1:
+        for d in dirs:
+            if d["name"] == parts[0]:
+                return d["id"]
+        raise ValueError(f"未找到名为 '{dir_name}' 的目录")
+
+    current_parent = ""
+    found_id = ""
+    for part in parts:
+        matched = [d for d in dirs if d["name"] == part and d["parent_id"] == current_parent]
+        if not matched:
+            matched = [d for d in dirs if d["name"] == part]
+        if not matched:
+            raise ValueError(f"未找到目录路径 '{dir_name}' 中的 '{part}'")
+        found_id = matched[0]["id"]
+        current_parent = found_id
+
+    return found_id
+
+
 def _pack_placeholder_xmind(title: str) -> bytes:
     """打包一个最小占位 .xmind 文件（zip 格式），用于 xmind/import 创建用例集"""
     buf = io.BytesIO()

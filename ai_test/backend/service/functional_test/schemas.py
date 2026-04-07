@@ -285,6 +285,7 @@ class ImportToFeishuRequest(BaseModel):
     title: Optional[str] = Field(None, description="用例集标题（不传则自动生成）")
     feishu_token: Optional[str] = Field(None, description="飞书 x-token（可选，不传则使用服务端缓存）")
     dir_id: Optional[str] = Field(None, description="飞书用例管理目录ID")
+    dir_name: Optional[str] = Field(None, description="飞书目录名称（会自动解析为 dir_id，支持 '/' 分隔路径）")
 
 
 class ImportToFeishuResponse(BaseModel):
@@ -292,3 +293,15 @@ class ImportToFeishuResponse(BaseModel):
     work_item_id: int = Field(..., description="飞书用例集工作项ID")
     case_set_url: str = Field(..., description="飞书用例集链接")
     case_count: int = Field(..., description="导入用例数量")
+
+
+class FeishuDirItem(BaseModel):
+    """飞书目录项"""
+    id: str = Field(..., description="目录ID")
+    name: str = Field(..., description="目录名称")
+    parent_id: str = Field("", description="父目录ID")
+
+
+class FeishuDirsResponse(BaseModel):
+    """飞书目录列表响应"""
+    dirs: List[FeishuDirItem] = Field(default_factory=list, description="目录列表")

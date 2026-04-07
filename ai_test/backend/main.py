@@ -23,7 +23,6 @@ from service.test_execution.api import router as test_execution_router
 from service.schedule.api import router as schedule_router
 from service.knowledge.api import router as knowledge_router
 from service.ui_test.api import router as ui_test_router
-from service.stress_test.api import router as stress_test_router
 from service.data_analysis.api import router as data_analysis_router
 import uvicorn
 
@@ -59,7 +58,6 @@ TORTOISE_ORM = {
                 "service.schedule.models",
                 "service.knowledge.models",  # 包含 ReviewRecord
                 "service.ui_test.models",
-                "service.stress_test.models",
             ],
             "default_connection": "default",
         }
@@ -247,7 +245,6 @@ app.include_router(test_execution_router, prefix="/test_execution", tags=["测�
 app.include_router(schedule_router, prefix="/schedule", tags=["测试排期管理"])
 app.include_router(knowledge_router, prefix="/knowledge", tags=["知识库"])
 app.include_router(ui_test_router, prefix="/ui_test", tags=["UI测试"])
-app.include_router(stress_test_router, tags=["压力测试"])
 app.include_router(data_analysis_router, prefix="/data_analysis", tags=["数据分析"])
 
 if __name__ == "__main__":

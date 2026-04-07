@@ -102,6 +102,12 @@ const routes = [
         meta: { title: 'AI生成测试用例', icon: 'Aim' }
       },
       {
+        path: 'function-test/ai-chat',
+        name: 'FunctionTestAiChat',
+        component: () => import('../views/FunctionTest/AiChat/Index.vue'),
+        meta: { title: 'AI对话助手', icon: 'ChatDotRound' }
+      },
+      {
         path: 'function-test/requirement',
         name: 'FunctionTestRequirement',
         component: () => import('../views/FunctionTest/Requirement/List.vue'),
@@ -235,20 +241,6 @@ const routes = [
         component: () => import('../views/ApiTest/QuickDebug/Index.vue'),
         meta: { title: '快捷调试', icon: 'Lightning' }
       },
-      // Phase 2: 定时任务
-      {
-        path: 'api-test/scheduled-tasks',
-        name: 'ApiScheduledTasks',
-        component: () => import('../views/ApiTest/ScheduledTask/Index.vue'),
-        meta: { title: '定时任务', icon: 'Timer' }
-      },
-      // Phase 3: Webhook通知配置
-      {
-        path: 'api-test/webhook-config',
-        name: 'ApiWebhookConfig',
-        component: () => import('../views/ApiTest/WebhookConfig/Index.vue'),
-        meta: { title: '通知配置', icon: 'Bell' }
-      },
       // Phase 3: 增强执行报告
       {
         path: 'api-test/execution-report/:projectId/:runId',
@@ -311,49 +303,6 @@ const routes = [
         name: 'UiTestReport',
         component: () => import('../views/UiTest/Report/Index.vue'),
         meta: { title: '报告详情', icon: 'Document' }
-      },
-      // 压力测试
-      {
-        path: 'stress-test/scenario',
-        name: 'StressTestScenario',
-        component: () => import('../views/StressTest/Scenario/Index.vue'),
-        meta: { title: '测试场景', icon: 'Document' }
-      },
-      {
-        path: 'stress-test/task',
-        name: 'StressTestTask',
-        component: () => import('../views/StressTest/Task/Index.vue'),
-        meta: { title: '压测任务', icon: 'VideoPlay' }
-      },
-      {
-        path: 'stress-test/report/:taskId',
-        name: 'StressTestReport',
-        component: () => import('../views/StressTest/Report/Index.vue'),
-        meta: { title: '性能报告', icon: 'DataAnalysis' }
-      },
-      {
-        path: 'stress-test/monitor/:taskId',
-        name: 'StressTestMonitor',
-        component: () => import('../views/StressTest/Monitor/Index.vue'),
-        meta: { title: '实时监控', icon: 'TrendCharts' }
-      },
-      {
-        path: 'stress-test/reports',
-        name: 'StressTestReportList',
-        component: () => import('../views/StressTest/ReportList/Index.vue'),
-        meta: { title: '性能报告', icon: 'DataAnalysis' }
-      },
-      {
-        path: 'stress-test/monitors',
-        name: 'StressTestMonitorList',
-        component: () => import('../views/StressTest/MonitorList/Index.vue'),
-        meta: { title: '实时监控', icon: 'TrendCharts' }
-      },
-      {
-        path: 'stress-test/baseline',
-        name: 'StressTestBaseline',
-        component: () => import('../views/StressTest/Baseline/Index.vue'),
-        meta: { title: '基线管理', icon: 'Histogram' }
       },
       // 测试排期管理
       {

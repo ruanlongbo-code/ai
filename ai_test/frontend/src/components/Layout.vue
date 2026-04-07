@@ -118,6 +118,10 @@
               <el-icon><Operation /></el-icon>
               <span>AI功能测试</span>
             </template>
+            <el-menu-item index="/function-test/ai-chat">
+              <el-icon><ChatDotRound /></el-icon>
+              <template #title>AI对话助手</template>
+            </el-menu-item>
             <el-menu-item index="/function-test/ai-optimize">
               <el-icon><Aim /></el-icon>
               <template #title>AI生成测试用例</template>
@@ -179,63 +183,6 @@
               <template #title>测试报告</template>
             </el-menu-item>
           </el-sub-menu>
-
-          <!-- AI压力测试 -->
-          <el-sub-menu index="stress-test">
-            <template #title>
-              <el-icon><Odometer /></el-icon>
-              <span>AI压力测试</span>
-            </template>
-            <el-menu-item index="/stress-test/scenario">
-              <el-icon><Document /></el-icon>
-              <template #title>测试场景</template>
-            </el-menu-item>
-            <el-menu-item index="/stress-test/task">
-              <el-icon><VideoPlay /></el-icon>
-              <template #title>压测任务</template>
-            </el-menu-item>
-            <el-menu-item index="/stress-test/reports">
-              <el-icon><DataAnalysis /></el-icon>
-              <template #title>性能报告</template>
-            </el-menu-item>
-            <el-menu-item index="/stress-test/monitors">
-              <el-icon><TrendCharts /></el-icon>
-              <template #title>实时监控</template>
-            </el-menu-item>
-            <el-menu-item index="/stress-test/baseline">
-              <el-icon><Histogram /></el-icon>
-              <template #title>基线管理</template>
-            </el-menu-item>
-          </el-sub-menu>
-
-          <!-- CICD集成 -->
-          <el-sub-menu index="cicd">
-            <template #title>
-              <el-icon><Promotion /></el-icon>
-              <span>CICD集成</span>
-            </template>
-            <el-menu-item index="/project-settings/environment">
-              <el-icon><Platform /></el-icon>
-              <template #title>环境管理</template>
-            </el-menu-item>
-            <el-menu-item index="/api-test/suite">
-              <el-icon><Collection /></el-icon>
-              <template #title>测试套件</template>
-            </el-menu-item>
-            <el-menu-item index="/api-test/quick-debug">
-              <el-icon><Lightning /></el-icon>
-              <template #title>快捷调试</template>
-            </el-menu-item>
-            <el-menu-item index="/api-test/scheduled-tasks">
-              <el-icon><Timer /></el-icon>
-              <template #title>定时任务</template>
-            </el-menu-item>
-            <el-menu-item index="/api-test/webhook-config">
-              <el-icon><Bell /></el-icon>
-              <template #title>通知配置</template>
-            </el-menu-item>
-          </el-sub-menu>
-
 
           <!-- AI数据分析 -->
           <el-sub-menu index="data-analysis">

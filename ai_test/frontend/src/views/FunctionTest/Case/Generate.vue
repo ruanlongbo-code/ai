@@ -393,6 +393,24 @@
         <el-form-item label="用例集标题（可选）">
           <el-input v-model="feishuTitle" placeholder="不填则自动使用名称" />
         </el-form-item>
+        <el-form-item label="目标目录">
+          <el-select
+            v-model="feishuDirId"
+            placeholder="选择飞书目录（不选则使用默认）"
+            clearable
+            filterable
+            :loading="feishuDirsLoading"
+            style="width: 100%"
+            @focus="loadFeishuDirs"
+          >
+            <el-option
+              v-for="dir in feishuDirsList"
+              :key="dir.id"
+              :label="dir.label"
+              :value="dir.id"
+            />
+          </el-select>
+        </el-form-item>
       </el-form>
       <div v-if="feishuResult" style="margin-top: 12px;">
         <el-alert type="success" :closable="false" show-icon>
@@ -449,6 +467,7 @@ import {
   getRequirementDetail,
   exportCasesAsXmind,
   importCasesToFeishu,
+  getFeishuDirs,
   REQUIREMENT_STATUS_LABELS,
   REQUIREMENT_STATUS_COLORS,
   REQUIREMENT_PRIORITY_LABELS
@@ -499,6 +518,30 @@ const feishuToken = ref(localStorage.getItem('feishu_x_token') || '')
 const feishuTitle = ref('')
 const feishuResult = ref(null)
 const feishuTokenReady = ref(false)
+const feishuDirId = ref('')
+const feishuDirsList = ref([])
+const feishuDirsLoading = ref(false)
+
+const loadFeishuDirs = async () => {
+  if (feishuDirsList.value.length > 0 || feishuDirsLoading.value) return
+  try {
+    feishuDirsLoading.value = true
+    const token = feishuToken.value.trim() || localStorage.getItem('feishu_x_token') || ''
+    const res = await getFeishuDirs(projectId.value, token || undefined)
+    const dirs = res.data?.dirs || res.dirs || []
+    const nameMap = {}
+    dirs.forEach(d => { nameMap[d.id] = d.name })
+    feishuDirsList.value = dirs.map(d => ({
+      id: d.id,
+      name: d.name,
+      label: d.parent_id && nameMap[d.parent_id] ? `${nameMap[d.parent_id]} / ${d.name}` : d.name,
+    }))
+  } catch (e) {
+    console.error('加载飞书目录失败:', e)
+  } finally {
+    feishuDirsLoading.value = false
+  }
+}
 
 const openFeishuPage = () => {
   window.open('https://project.feishu.cn/research__development/meegoPlg/MII_642BBF6AC6C74001_test_management_use_case_set', '_blank')
@@ -954,6 +997,7 @@ const handleImportFeishu = async () => {
       requirement_id: parseInt(requirementId.value),
       feishu_token: feishuToken.value.trim() || undefined,
       title: feishuTitle.value || undefined,
+      dir_id: feishuDirId.value || undefined,
     })
 
     const data = response.data || response
